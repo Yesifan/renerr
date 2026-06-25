@@ -1,0 +1,11 @@
+[agents]
+max_threads = 6
+max_depth = 1
+
+[mcp_servers.svelte]
+command = "npx"
+args = ["-y", "@sveltejs/mcp"]
+
+[mcp_servers.shadcn]
+command = "npx"
+args = ["shadcn@latest", "mcp"]
