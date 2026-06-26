@@ -1,4 +1,5 @@
 <script lang="ts">
+	import AppShell from '$lib/components/AppShell.svelte';
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 
@@ -6,4 +7,6 @@
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
-{@render children()}
+<AppShell>
+	{@render children()}
+</AppShell>

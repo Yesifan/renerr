@@ -5,24 +5,47 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
+		"dev:web": "vite dev",
+		"dev:worker": "tsx watch src/worker/index.ts",
 		"build": "vite build",
+		"build:worker": "tsup src/worker/index.ts --format esm --platform node --target node24 --out-dir build-worker --clean",
 		"preview": "vite preview",
+		"worker": "node build-worker/index.js",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "vitest run"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",
+		"@sveltejs/adapter-node": "^5.5.7",
 		"@sveltejs/kit": "^2.63.0",
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
 		"@tailwindcss/forms": "^0.5.11",
 		"@tailwindcss/typography": "^0.5.19",
 		"@tailwindcss/vite": "^4.3.0",
+		"@types/better-sqlite3": "^7.6.13",
+		"drizzle-kit": "^0.31.10",
 		"svelte": "^5.56.1",
 		"svelte-check": "^4.6.0",
 		"tailwind-variants": "^3.2.2",
 		"tailwindcss": "^4.3.0",
+		"tsup": "^8.5.1",
+		"tsx": "^4.22.4",
 		"typescript": "^6.0.3",
-		"vite": "^8.0.16"
+		"vite": "^8.0.16",
+		"vitest": "^4.1.9"
+	},
+	"dependencies": {
+		"@oslojs/crypto": "^1.0.1",
+		"@oslojs/encoding": "^1.1.0",
+		"@tanstack/svelte-query": "^6.1.35",
+		"better-sqlite3": "^12.11.1",
+		"clsx": "^2.1.1",
+		"drizzle-orm": "^0.45.2",
+		"lucide-svelte": "^1.0.1",
+		"tailwind-merge": "^3.6.0",
+		"webdav": "^5.10.0",
+		"zod": "^4.4.3"
 	}
 }
