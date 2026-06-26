@@ -4,7 +4,9 @@ import { decryptCredential, encryptCredential } from '$lib/server/security/crede
 import { nowIso } from '$lib/server/time';
 import { libraryPathInputSchema, webdavSourceInputSchema } from '$lib/schemas/domain';
 import { WebDavFileClient } from '$lib/server/integrations/webdav-client';
+import { ApiError } from '$lib/server/api';
 import { normalizeRemotePath } from './paths';
+import { log } from './logs';
 
 type SourceRow = {
 	id: string;
@@ -68,10 +70,35 @@ export async function testWebdavConnection(input: unknown, id?: string) {
 	const parsed = webdavSourceInputSchema.parse(input);
 	const existing = id ? (getSqlite().prepare('select * from webdav_sources where id = ?').get(id) as SourceRow) : undefined;
 	const credential = parsed.credential || (existing ? decryptCredential(existing.credential_encrypted) : '');
-	if (!credential) throw new Error('Credential is required');
+	if (!credential) throw new ApiError('validation_failed', 'Credential is required', 400);
 	const client = new WebDavFileClient(parsed.url, parsed.username, credential);
-	await client.listDirectory('/');
+	try {
+		await client.listDirectory('/');
+	} catch (error) {
+		log('error', 'WebDavClient', 'WebDAV connection test failed', {
+			url: parsed.url,
+			username: parsed.username,
+			error: error instanceof Error ? error.message : String(error)
+		});
+		throw new ApiError('webdav.connection_failed', 'WebDAV connection failed', 400);
+	}
 	return { ok: true };
+}
+
+export async function testLibraryPath(input: unknown) {
+	const parsed = libraryPathInputSchema.pick({ sourceId: true, path: true }).parse(input);
+	const client = getClientForSource(parsed.sourceId);
+	try {
+		await client.listDirectory(normalizeRemotePath(parsed.path));
+		return { ok: true };
+	} catch (error) {
+		log('error', 'WebDavClient', 'WebDAV library path test failed', {
+			sourceId: parsed.sourceId,
+			path: normalizeRemotePath(parsed.path),
+			error: error instanceof Error ? error.message : String(error)
+		});
+		throw new ApiError('webdav.path_unreadable', 'WebDAV path is not readable', 400);
+	}
 }
 
 export async function browseWebdav(sourceId: string, path: string) {

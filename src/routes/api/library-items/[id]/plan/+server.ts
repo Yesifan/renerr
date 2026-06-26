@@ -1,10 +1,10 @@
 import { apiError, ok } from '$lib/server/api';
-import { createPlanForItem } from '$lib/server/services/planner';
+import { createDraftForItem } from '$lib/server/services/planner';
 import type { RequestEvent } from './$types';
 
 export async function POST(event: RequestEvent) {
 	try {
-		return ok(await createPlanForItem(event.params.id, 'manual'));
+		return ok(await createDraftForItem(event.params.id));
 	} catch (error) {
 		return apiError(error);
 	}

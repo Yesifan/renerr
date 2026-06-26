@@ -4,10 +4,12 @@ import { nowIso } from '$lib/server/time';
 import { getClientForSource, getLibrary } from './sources';
 import { isVideoPath, joinRemote, normalizeRemotePath } from './paths';
 import { parseMovieName, parseTvName, normalizeTitle } from './parser';
+import { isCompliantVideo } from './compliance';
 import { searchTmdb } from './tmdb';
 import { log } from './logs';
 import { createPlanForItem } from './planner';
 import { enqueueTask } from './tasks';
+import { ApiError } from '$lib/server/api';
 
 export async function scanLibraryPath(libraryPathId: string) {
 	const library = getLibrary(libraryPathId);
@@ -38,13 +40,21 @@ export async function scanLibraryPath(libraryPathId: string) {
 				now
 			});
 		}
+		inheritIdentityFromRenameTarget(id);
 		const item = db.prepare('select * from library_items where id = ?').get(id) as Record<string, unknown>;
-		const videos = await refreshItemStats(id);
-		if (videos.length === 0) {
-			markPending(id, 'no_video', []);
+		const status = String(item.status);
+		if (status === 'pending_review' || status === 'failed') continue;
+		if (status === 'identified') continue;
+		if (status === 'organized') {
+			await refreshItemStats(id);
 			continue;
 		}
-		if (String(item.status) === 'unidentified') {
+		if (status === 'unidentified') {
+			const videos = await refreshItemStats(id);
+			if (videos.length === 0) {
+				markPending(id, 'no_video', []);
+				continue;
+			}
 			try {
 				await recognizeItem(id);
 			} catch (error) {
@@ -73,6 +83,81 @@ export async function scanLibraryPath(libraryPathId: string) {
 	log('info', 'LibraryScanner', 'Library path scan completed', { libraryPathId, count: seen.size });
 }
 
+function inheritIdentityFromRenameTarget(itemId: string) {
+	const db = getSqlite();
+	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<string, unknown> | undefined;
+	if (!item || item.source_media_id) return;
+	const source = db
+		.prepare(
+			`select src.*
+			 from rename_plan_items rpi
+			 join rename_plans rp on rp.id = rpi.plan_id
+			 join library_items src on src.id = rpi.library_item_id
+			 where rp.library_path_id = @libraryPathId
+			   and rp.status = 'executed'
+			   and rpi.target_top_level_path = @topLevelPath
+			   and src.source_media_id is not null
+			 order by rp.created_at desc
+			 limit 1`
+		)
+		.get({
+			libraryPathId: String(item.library_path_id),
+			topLevelPath: String(item.top_level_path)
+		}) as Record<string, unknown> | undefined;
+	if (!source) return;
+	db.prepare(
+		`update library_items set status = 'organized', source = @source,
+		 source_media_type = @sourceMediaType, source_media_id = @sourceMediaId,
+		 title = @title, original_title = @originalTitle, year = @year,
+		 poster_path = @posterPath, confidence = @confidence,
+		 review_reason = null, recognition_candidates_json = @candidates,
+		 updated_at = @now where id = @id`
+	).run({
+		id: itemId,
+		source: source.source ? String(source.source) : 'tmdb',
+		sourceMediaType: source.source_media_type ? String(source.source_media_type) : null,
+		sourceMediaId: String(source.source_media_id),
+		title: source.title ? String(source.title) : null,
+		originalTitle: source.original_title ? String(source.original_title) : source.title ? String(source.title) : null,
+		year: source.year ? Number(source.year) : null,
+		posterPath: source.poster_path ? String(source.poster_path) : null,
+		confidence: source.confidence ? String(source.confidence) : 'manual',
+		candidates: source.recognition_candidates_json ? String(source.recognition_candidates_json) : '[]',
+		now: nowIso()
+	});
+}
+
+export async function scanLibraryItem(itemId: string) {
+	const db = getSqlite();
+	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<string, unknown> | undefined;
+	if (!item) throw new ApiError('item.not_found', 'Library item not found', 404);
+	const status = String(item.status);
+	if (status !== 'organized' && status !== 'unidentified' && status !== 'failed') {
+		throw new ApiError('item.scan_not_allowed', 'Library item cannot be scanned in its current status', 400, {
+			status
+		});
+	}
+	const videos = await refreshItemStats(itemId);
+	if (status === 'organized' || status === 'failed') {
+		log('info', 'LibraryScanner', 'Library item scan completed', { libraryItemId: itemId, status });
+		return;
+	}
+	if (videos.length === 0) {
+		markPending(itemId, 'no_video', []);
+		return;
+	}
+	try {
+		await recognizeItem(itemId);
+	} catch (error) {
+		markPending(itemId, 'tmdb_error', []);
+		log('warn', 'TmdbMatcher', 'TMDB recognition failed for item', {
+			libraryItemId: itemId,
+			error: String(error)
+		});
+	}
+	log('info', 'LibraryScanner', 'Library item scan completed', { libraryItemId: itemId, status });
+}
+
 export async function refreshItemStats(itemId: string) {
 	const db = getSqlite();
 	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<string, unknown>;
@@ -84,12 +169,13 @@ export async function refreshItemStats(itemId: string) {
 			? [itemRoot]
 			: await collectVideos(client, itemRoot, library.mediaType === 'movie' ? 1 : 2);
 	const now = nowIso();
+	const compliant = videos.filter((video) => isCompliantVideo(library.mediaType, video)).length;
 	db.prepare(
 		`update library_items set video_file_count = @videos, unknown_file_count = 0,
-		 compliant_file_count = case when status = 'organized' then @videos else 0 end,
-		 non_compliant_file_count = case when status = 'organized' then 0 else @videos end,
+		 compliant_file_count = @compliant,
+		 non_compliant_file_count = @nonCompliant,
 		 last_scanned_at = @now, updated_at = @now where id = @id`
-	).run({ id: itemId, videos: videos.length, now });
+	).run({ id: itemId, videos: videos.length, compliant, nonCompliant: videos.length - compliant, now });
 	return videos;
 }
 

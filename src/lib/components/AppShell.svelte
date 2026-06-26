@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { api, libraryLabel, type Workspace } from '$lib/client/api';
+	import { getLocale, locales, messages as m, setBrowserLocale, type Locale } from '$lib/i18n';
 	import { onMount } from 'svelte';
 
 	let { children } = $props();
@@ -16,6 +17,7 @@
 	let pathname = $derived(page.url.pathname);
 	let settingsOpen = $derived(pathname.startsWith('/settings'));
 	let systemOpen = $derived(pathname.startsWith('/system') || pathname === '/tasks');
+	let locale = $state<Locale>(getLocale());
 
 	onMount(() => {
 		void refresh();
@@ -55,25 +57,41 @@
 				: 'border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-200'
 		];
 	}
+
+	function updateLocale() {
+		setBrowserLocale(locale);
+	}
 </script>
 
 <div class="min-h-screen bg-slate-950 text-slate-100">
-	<header class="fixed inset-x-0 top-0 z-20 flex h-14 items-center gap-8 border-b border-white/10 bg-slate-950/95 px-6 backdrop-blur">
-		<a class="text-xl font-semibold tracking-wide text-white" href={resolve('/')}>RENARR</a>
-		<label class="flex w-[340px] items-center gap-3 rounded-md border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-sm text-slate-400">
+	<header class="z-20 flex min-h-14 flex-wrap items-center gap-3 border-b border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur md:fixed md:inset-x-0 md:top-0 md:h-14 md:flex-nowrap md:gap-8 md:px-6 md:py-0">
+		<a class="text-xl font-semibold tracking-wide text-white" href={resolve('/')}>{m.app_title()}</a>
+		<label class="flex min-w-0 flex-1 items-center gap-3 rounded-md border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-sm text-slate-400 md:max-w-[340px]">
 			<span class="text-base">⌕</span>
 			<input
 				class="w-full border-0 bg-transparent p-0 text-slate-100 placeholder:text-slate-500 focus:ring-0"
-				placeholder="搜索"
+				placeholder={m.search_placeholder()}
 			/>
+		</label>
+		<label class="flex items-center gap-2 text-sm text-slate-400 md:ml-auto">
+			<span>{m.language_label()}</span>
+			<select
+				bind:value={locale}
+				onchange={updateLocale}
+				class="rounded-md border border-slate-800 bg-slate-900 px-2 py-1 text-slate-100"
+			>
+				{#each locales as option (option)}
+					<option value={option}>{m.language_zh_cn()}</option>
+				{/each}
+			</select>
 		</label>
 	</header>
 
-	<div class="grid min-h-screen grid-cols-[260px_1fr] pt-14">
-		<aside class="fixed bottom-0 left-0 top-14 w-[260px] overflow-y-auto border-r border-white/10 bg-slate-950 text-sm">
-			<nav class="space-y-4 px-3 py-5">
+	<div class="md:grid md:min-h-screen md:grid-cols-[260px_1fr] md:pt-14">
+		<aside class="border-b border-white/10 bg-slate-950 text-sm md:fixed md:bottom-0 md:left-0 md:top-14 md:w-[260px] md:overflow-y-auto md:border-b-0 md:border-r">
+			<nav class="flex flex-col gap-4 px-3 py-4 md:py-5">
 				<section>
-					<a class={navClass('/')} href={resolve('/')}>媒体库</a>
+					<a class={navClass('/')} href={resolve('/')}>{m.nav_media_library()}</a>
 					<div class="pb-2">
 						{#each workspace.libraries as library (library.id)}
 							<a class={childClass(`/libraries/${library.id}`)} href={resolve(`/libraries/${library.id}`)}>
@@ -84,26 +102,26 @@
 				</section>
 
 				<section>
-					<a class={sectionClass(settingsOpen)} href={resolve('/settings/media')}>设置</a>
+					<a class={sectionClass(settingsOpen)} href={resolve('/settings/media')}>{m.nav_settings()}</a>
 					<div class="pb-2">
-						<a class={childClass('/settings/media')} href={resolve('/settings/media')}>媒体管理</a>
+						<a class={childClass('/settings/media')} href={resolve('/settings/media')}>{m.nav_media_settings()}</a>
 					</div>
 				</section>
 
 				<section>
-					<a class={sectionClass(systemOpen)} href={resolve('/system/tasks')}>系统</a>
+					<a class={sectionClass(systemOpen)} href={resolve('/system/tasks')}>{m.nav_system()}</a>
 					<div class="pb-2">
-						<a class={childClass('/system/tasks')} href={resolve('/system/tasks')}>任务队列</a>
-						<a class={childClass('/system/logs')} href={resolve('/system/logs')}>任务日志</a>
+						<a class={childClass('/system/tasks')} href={resolve('/system/tasks')}>{m.nav_tasks()}</a>
+						<a class={childClass('/system/logs')} href={resolve('/system/logs')}>{m.nav_logs()}</a>
 					</div>
 				</section>
 			</nav>
 		</aside>
 
-		<div></div>
+		<div class="hidden md:block"></div>
 
 		<div class="min-w-0">
-			<main class="min-w-0 bg-slate-900 p-8">
+			<main class="min-w-0 bg-slate-900 p-4 md:p-8">
 				{@render children?.()}
 			</main>
 		</div>

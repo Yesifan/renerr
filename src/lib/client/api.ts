@@ -1,3 +1,25 @@
+import { errorLabel, statusLabel } from '$lib/i18n';
+
+export type ApiErrorDto = {
+	code: string;
+	message: string;
+	context?: unknown;
+};
+
+export class ClientApiError extends Error {
+	code: string;
+	safeMessage: string;
+	context?: unknown;
+
+	constructor(dto: ApiErrorDto) {
+		super(errorLabel(dto.code, dto.message));
+		this.name = 'ClientApiError';
+		this.code = dto.code;
+		this.safeMessage = dto.message;
+		this.context = dto.context;
+	}
+}
+
 export type Workspace = {
 	sources: Source[];
 	libraries: Library[];
@@ -36,12 +58,83 @@ export type Item = {
 	kind: 'folder' | 'file';
 	topLevelPath: string;
 	status: string;
+	source: string | null;
+	sourceMediaType: string | null;
+	sourceMediaId: string | null;
 	title: string | null;
 	year: number | null;
 	posterUrl: string | null;
 	videoFileCount: number;
 	reviewReason: string | null;
 	recognitionCandidates: TmdbResult[];
+	compliantFileCount?: number;
+	nonCompliantFileCount?: number;
+	lastScannedAt?: string | null;
+	lastExecutionSummary?: unknown;
+};
+
+export type ItemDetail = {
+	item: Item;
+	library: Library;
+	files: ItemDetailFile[];
+	summary: {
+		videoFileCount: number;
+		compliantFileCount?: number;
+		nonCompliantFileCount?: number;
+		lastScannedAt?: string | null;
+		lastExecutionSummary?: unknown;
+	};
+	executionRecords: ExecutionRecord[];
+};
+
+export type ItemDetailFile = {
+	path: string;
+	basename: string;
+	type: 'file' | 'directory';
+	size?: number;
+	lastmod?: string;
+	video: boolean;
+	compliance: { state: 'not_video' | 'compliant' | 'non_compliant'; movie?: unknown; tv?: unknown };
+};
+
+export type ExecutionRecord = {
+	id: string;
+	sourcePath: string;
+	targetPath: string;
+	status: string;
+	error: string | null;
+	context: unknown;
+	createdAt: string;
+};
+
+export type RenamePlanDraft = {
+	id: string;
+	libraryPathId: string;
+	libraryItemId: string | null;
+	mode: string;
+	status: string;
+	rows: RenamePlanDraftRow[];
+	createdAt: string;
+	updatedAt: string;
+	expiresAt: string;
+};
+
+export type RenamePlanDraftRow = {
+	id: string;
+	selected: boolean;
+	sourceFilePath: string;
+	targetFilePath: string;
+	targetTopLevelPath: string;
+	mediaKind: 'movie' | 'tv';
+	sourceMediaId: string | null;
+	season: number | null;
+	episode: number | null;
+	overwrite: boolean;
+	conflict: boolean;
+	conflictAction: 'overwrite' | null;
+	sidecars: string[];
+	status: 'valid' | 'invalid';
+	errorCode: string | null;
 };
 
 export type Task = {
@@ -74,7 +167,14 @@ export type TmdbResult = {
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
 	const response = await fetch(url, init);
 	const data = await response.json();
-	if (!response.ok) throw new Error(data.error || response.statusText);
+	if (!response.ok) {
+		const dto: ApiErrorDto = {
+			code: typeof data?.code === 'string' ? data.code : 'unknown',
+			message: typeof data?.message === 'string' ? data.message : response.statusText,
+			context: data?.context
+		};
+		throw new ClientApiError(dto);
+	}
 	return data;
 }
 
@@ -99,18 +199,7 @@ export function libraryLabel(library: Library) {
 }
 
 export function statusText(status: string, reason: string | null = null) {
-	const labels: Record<string, string> = {
-		unidentified: '未识别',
-		pending_review: reason ? `待确认 · ${reason}` : '待确认',
-		identified: '已识别',
-		organized: '已整理',
-		failed: '失败',
-		queued: '排队中',
-		running: '运行中',
-		succeeded: '成功',
-		partially_failed: '部分失败'
-	};
-	return labels[status] || status;
+	return statusLabel(status, reason);
 }
 
 export function statusClass(status: string) {

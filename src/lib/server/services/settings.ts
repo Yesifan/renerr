@@ -12,10 +12,16 @@ export function getSettings(): AppSettings {
 export function saveSettings(input: unknown) {
 	const existing = getSettings();
 	const patch = input && typeof input === 'object' ? (input as Partial<AppSettings>) : {};
+	const tmdbApiKey =
+		typeof patch.tmdbApiKey === 'string' && isMaskedKey(patch.tmdbApiKey)
+			? existing.tmdbApiKey
+			: patch.tmdbApiKey
+				? patch.tmdbApiKey
+				: existing.tmdbApiKey;
 	const settings = settingsSchema.parse({
 		...existing,
 		...patch,
-		tmdbApiKey: patch.tmdbApiKey ? patch.tmdbApiKey : existing.tmdbApiKey
+		tmdbApiKey
 	});
 	getSqlite()
 		.prepare(
@@ -25,6 +31,10 @@ export function saveSettings(input: unknown) {
 		)
 		.run({ valueJson: JSON.stringify(settings), updatedAt: nowIso() });
 	return settings;
+}
+
+function isMaskedKey(value: string) {
+	return /^\S{1,8}\.\.\.\S{1,8}$/.test(value);
 }
 
 export function publicSettings() {

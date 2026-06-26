@@ -3,6 +3,7 @@
 	import Modal from '$lib/components/Modal.svelte';
 	import SectionPanel from '$lib/components/SectionPanel.svelte';
 	import { api, libraryLabel, post, put, type Library, type Source, type Workspace } from '$lib/client/api';
+	import { messages as m } from '$lib/i18n';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 
@@ -67,6 +68,18 @@
 		}
 	}
 
+	async function testTmdbSettings() {
+		busy = true;
+		try {
+			await post('/api/tmdb/test', { apiKey: tmdbApiKey || undefined });
+			message = m.toast_test_succeeded();
+		} catch (error) {
+			message = String(error);
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function saveFileSettings() {
 		busy = true;
 		try {
@@ -96,6 +109,21 @@
 			};
 			message = '媒体库路径已添加';
 			await refresh();
+		} catch (error) {
+			message = String(error);
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function testLibraryPath() {
+		busy = true;
+		try {
+			await post('/api/webdav/path-test', {
+				sourceId: libraryForm.sourceId,
+				path: libraryForm.path
+			});
+			message = m.toast_test_succeeded();
 		} catch (error) {
 			message = String(error);
 		} finally {
@@ -159,7 +187,7 @@
 	</div>
 </header>
 
-<div class="space-y-6">
+<div class="flex flex-col gap-6">
 	<SectionPanel title="元数据配置" description="配置外部元数据服务。">
 		<div class="grid gap-5 lg:grid-cols-[220px_1fr]">
 			<div class="text-sm font-medium text-slate-200">TMDB API Key</div>
@@ -172,7 +200,10 @@
 				<div class="text-xs text-slate-500">当前: {workspace.settings.tmdbApiKey || '未设置'}</div>
 			</div>
 		</div>
-		<div class="mt-5 flex justify-end">
+		<div class="mt-5 flex justify-end gap-3">
+			<Button disabled={busy || (!tmdbApiKey && !workspace.settings.tmdbApiKey)} onclick={testTmdbSettings} variant="outline">
+				{m.action_test_tmdb()}
+			</Button>
 			<Button disabled={busy || !tmdbApiKey} onclick={saveTmdbSettings}>保存元数据配置</Button>
 		</div>
 	</SectionPanel>
@@ -201,7 +232,7 @@
 			<Button onclick={() => (addLibraryOpen = true)}>添加 Library Path</Button>
 		{/snippet}
 
-		<div class="overflow-hidden rounded-md border border-slate-800">
+		<div class="overflow-x-auto rounded-md border border-slate-800">
 			<table class="w-full text-left text-sm">
 				<thead class="bg-slate-900 text-slate-400">
 					<tr>
@@ -253,7 +284,7 @@
 			<Button onclick={() => (addSourceOpen = true)}>添加媒体源</Button>
 		{/snippet}
 
-		<div class="overflow-hidden rounded-md border border-slate-800">
+		<div class="overflow-x-auto rounded-md border border-slate-800">
 			<table class="w-full text-left text-sm">
 				<thead class="bg-slate-900 text-slate-400">
 					<tr>
@@ -311,6 +342,11 @@
 		<input type="checkbox" bind:checked={libraryForm.autoOrganize} />
 		自动整理高置信条目
 	</label>
+	<div class="flex justify-start">
+		<Button variant="outline" disabled={busy || !libraryForm.sourceId || !libraryForm.path} onclick={testLibraryPath}>
+			{m.action_test_connection()}
+		</Button>
+	</div>
 </Modal>
 
 <Modal

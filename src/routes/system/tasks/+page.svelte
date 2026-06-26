@@ -42,7 +42,7 @@
 </header>
 
 <SectionPanel title="队列">
-	<div class="overflow-hidden rounded-md border border-slate-800">
+	<div class="overflow-x-auto rounded-md border border-slate-800">
 		<table class="w-full text-left text-sm">
 			<thead class="bg-slate-900 text-slate-400">
 				<tr>

@@ -1,5 +1,22 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { ProxyAgent, setGlobalDispatcher } from 'undici';
+
+setupProxyDispatcher();
+
+function setupProxyDispatcher() {
+	const proxy =
+		process.env.HTTPS_PROXY ||
+		process.env.https_proxy ||
+		process.env.HTTP_PROXY ||
+		process.env.http_proxy ||
+		process.env.ALL_PROXY ||
+		process.env.all_proxy;
+	if (proxy) {
+		// Node 内置 fetch 不读 HTTP_PROXY 环境变量，需手动设置全局 dispatcher。
+		setGlobalDispatcher(new ProxyAgent(proxy));
+	}
+}
 
 export function getDataDir() {
 	const dir = process.env.RENERR_DATA_DIR || process.env.RENARR_DATA_DIR || join(process.cwd(), '.renarr-data');

@@ -1,5 +1,6 @@
 import { createClient, type FileStat } from 'webdav';
 import type { FileClient, FileEntry, MoveOptions, MoveResult } from './file-client';
+import { basename, dirname, joinRemote } from '$lib/server/services/paths';
 
 export class WebDavFileClient implements FileClient {
 	private client;
@@ -26,6 +27,13 @@ export class WebDavFileClient implements FileClient {
 	}
 
 	async moveFile(from: string, to: string, options: MoveOptions = {}): Promise<MoveResult> {
+		const intermediate = intermediateMovePath(from, to);
+		if (intermediate) {
+			await this.client.moveFile(from, intermediate, { overwrite: false });
+			await this.waitUntilExists(intermediate);
+			await this.client.moveFile(intermediate, to, { overwrite: options.overwrite ?? false });
+			return { ok: true };
+		}
 		await this.client.moveFile(from, to, { overwrite: options.overwrite ?? false });
 		return { ok: true };
 	}
@@ -42,4 +50,17 @@ export class WebDavFileClient implements FileClient {
 		if (!overwrite && (await this.exists(path))) return;
 		await this.client.putFileContents(path, content, { overwrite });
 	}
+
+	private async waitUntilExists(path: string) {
+		for (let attempt = 0; attempt < 10; attempt += 1) {
+			if (await this.client.exists(path)) return;
+			await new Promise((resolve) => setTimeout(resolve, 300));
+		}
+	}
+}
+
+function intermediateMovePath(from: string, to: string) {
+	if (dirname(from) === dirname(to)) return null;
+	if (basename(from) === basename(to)) return null;
+	return joinRemote(dirname(to), basename(from));
 }

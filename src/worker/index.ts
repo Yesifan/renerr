@@ -1,6 +1,6 @@
 import { executeRenamePlan } from '$lib/server/services/executor';
 import { log } from '$lib/server/services/logs';
-import { scanLibraryPath } from '$lib/server/services/scanner';
+import { scanLibraryItem, scanLibraryPath } from '$lib/server/services/scanner';
 import { claimNextTask, failRunningTasksOnStartup, finishTask } from '$lib/server/services/tasks';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -19,6 +19,8 @@ while (true) {
 		let state: 'succeeded' | 'partially_failed' | 'failed' = 'succeeded';
 		if (task.type === 'scan_library_path') {
 			await scanLibraryPath(String(task.payload.libraryPathId));
+		} else if (task.type === 'scan_library_item') {
+			await scanLibraryItem(String(task.payload.libraryItemId));
 		} else if (task.type === 'execute_rename_plan') {
 			state = await executeRenamePlan(task.id, String(task.payload.planId));
 		} else {

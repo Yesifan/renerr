@@ -1,5 +1,9 @@
 import { getSqlite } from '$lib/server/db';
 import { posterUrl } from './tmdb';
+import { getClientForSource, getLibrary } from './sources';
+import { isVideoPath, joinRemote } from './paths';
+import { parseMovieName, parseTvName } from './parser';
+import { ApiError } from '$lib/server/api';
 
 export function listItems(libraryPathId?: string) {
 	const rows = (libraryPathId
@@ -15,8 +19,60 @@ export function listItems(libraryPathId?: string) {
 
 export function getItem(id: string) {
 	const row = getSqlite().prepare('select * from library_items where id = ?').get(id);
-	if (!row) throw new Error('Item not found');
+	if (!row) throw new ApiError('item.not_found', 'Library item not found', 404);
 	return mapItem(row as Record<string, unknown>);
+}
+
+export async function getItemDetail(id: string) {
+	const row = getSqlite().prepare('select * from library_items where id = ?').get(id) as
+		| Record<string, unknown>
+		| undefined;
+	if (!row) throw new ApiError('item.not_found', 'Library item not found', 404);
+	const item = mapItem(row);
+	const library = getLibrary(String(row.library_path_id));
+	const client = getClientForSource(library.sourceId);
+	const root = joinRemote(library.path, String(row.top_level_path));
+	const files = String(row.kind) === 'file'
+		? [{
+				path: root,
+				basename: String(row.top_level_path),
+				type: 'file' as const,
+				video: isVideoPath(String(row.top_level_path)),
+				compliance: classifyVideo(library.mediaType, String(row.top_level_path))
+			}]
+		: await listDetailEntries(client, root, library.mediaType === 'movie' ? 1 : 2, library.mediaType);
+	const executionRecords = getSqlite()
+		.prepare(
+			`select er.*
+			 from execution_records er
+			 join rename_plan_items rpi on rpi.id = er.plan_item_id
+			 where rpi.library_item_id = ?
+			 order by er.created_at desc
+			 limit 50`
+		)
+		.all(id)
+		.map((record) => ({
+			id: String((record as Record<string, unknown>).id),
+			sourcePath: String((record as Record<string, unknown>).source_path),
+			targetPath: String((record as Record<string, unknown>).target_path),
+			status: String((record as Record<string, unknown>).status),
+			error: (record as Record<string, unknown>).error ? String((record as Record<string, unknown>).error) : null,
+			context: JSON.parse(String((record as Record<string, unknown>).context_json || '{}')),
+			createdAt: String((record as Record<string, unknown>).created_at)
+		}));
+	return {
+		item,
+		library,
+		files,
+		summary: {
+			videoFileCount: item.videoFileCount,
+			compliantFileCount: item.compliantFileCount,
+			nonCompliantFileCount: item.nonCompliantFileCount,
+			lastScannedAt: item.lastScannedAt,
+			lastExecutionSummary: item.lastExecutionSummary
+		},
+		executionRecords
+	};
 }
 
 export function setItemIdentity(
@@ -80,4 +136,57 @@ export function mapItem(row: Record<string, unknown>) {
 			? JSON.parse(String(row.last_execution_summary_json))
 			: null
 	};
+}
+
+async function listDetailEntries(
+	client: { listDirectory(path: string): Promise<{ basename: string; type: 'file' | 'directory'; size?: number; lastmod?: string }[]> },
+	root: string,
+	depth: number,
+	mediaType: 'movie' | 'tv'
+) {
+	const entries: {
+		path: string;
+		basename: string;
+		type: 'file' | 'directory';
+		size?: number;
+		lastmod?: string;
+		video: boolean;
+		compliance: ReturnType<typeof classifyVideo>;
+	}[] = [];
+	async function walk(path: string, remainingDepth: number) {
+		const children = await client.listDirectory(path);
+		for (const child of children) {
+			const fullPath = joinRemote(path, child.basename);
+			const video = child.type === 'file' && isVideoPath(child.basename);
+			entries.push({
+				path: fullPath,
+				basename: child.basename,
+				type: child.type,
+				size: child.size,
+				lastmod: child.lastmod,
+				video,
+				compliance: video ? classifyVideo(mediaType, child.basename) : { state: 'not_video' as const }
+			});
+			if (child.type === 'directory' && remainingDepth > 0) await walk(fullPath, remainingDepth - 1);
+		}
+	}
+	await walk(root, depth);
+	return entries;
+}
+
+function classifyVideo(mediaType: 'movie' | 'tv', basename: string) {
+	if (!isVideoPath(basename)) return { state: 'not_video' as const };
+	if (mediaType === 'movie') {
+		const parsed = parseMovieName(basename);
+		return parsed.title && parsed.year
+			? { state: 'compliant' as const, movie: { title: parsed.title, year: parsed.year } }
+			: { state: 'non_compliant' as const };
+	}
+	const parsed = parseTvName(basename);
+	return parsed.title && parsed.season && parsed.episode
+		? {
+				state: 'compliant' as const,
+				tv: { title: parsed.title, season: parsed.season, episode: parsed.episode }
+			}
+		: { state: 'non_compliant' as const };
 }
