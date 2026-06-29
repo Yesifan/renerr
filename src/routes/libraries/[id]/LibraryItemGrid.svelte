@@ -1,50 +1,20 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import * as Empty from '$lib/components/ui/empty';
-	import type { Item, TmdbResult } from '$lib/schemas/domain';
+	import type { Item } from '$lib/schemas/domain';
 	import LibraryItemCard from './LibraryItemCard.svelte';
 
 	type Props = {
 		items: Item[];
-		selectedItemId: string | null;
-		manualSearch: Record<string, string>;
-		searchResults: Record<string, TmdbResult[]>;
-		searchLabel: string;
-		onSelect: (item: Item) => void;
-		canManualMatch: (item: Item) => boolean;
-		onManualQueryChange: (item: Item, value: string) => void;
-		onSearch: (item: Item) => void | Promise<void>;
-		onChooseIdentity: (item: Item, result: TmdbResult) => void | Promise<void>;
+		libraryPathId: string;
 	};
 
-	let {
-		items,
-		selectedItemId,
-		manualSearch,
-		searchResults,
-		searchLabel,
-		onSelect,
-		canManualMatch,
-		onManualQueryChange,
-		onSearch,
-		onChooseIdentity
-	}: Props = $props();
+	let { items, libraryPathId }: Props = $props();
 </script>
 
 <div class="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">
 	{#each items as item (item.id)}
-		<LibraryItemCard
-			{item}
-			selected={selectedItemId === item.id}
-			canManualMatch={canManualMatch(item)}
-			manualQuery={manualSearch[item.id] || ''}
-			searchResults={searchResults[item.id] || []}
-			{searchLabel}
-			onSelect={onSelect}
-			onManualQueryChange={onManualQueryChange}
-			onSearch={onSearch}
-			onChooseIdentity={onChooseIdentity}
-		/>
+		<LibraryItemCard {item} {libraryPathId} />
 	{:else}
 		<Empty.Root class="col-span-full">
 			<Empty.Header>
