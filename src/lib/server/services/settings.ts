@@ -1,6 +1,6 @@
 import { getSqlite } from '$lib/server/db';
 import { nowIso } from '$lib/server/time';
-import { settingsSchema, type AppSettings } from '$lib/schemas/domain';
+import { settingsPatchSchema, settingsSchema, type AppSettings } from '$lib/schemas/domain';
 
 export function getSettings(): AppSettings {
 	const row = getSqlite().prepare('select value_json from app_settings where id = ?').get('global') as
@@ -11,7 +11,7 @@ export function getSettings(): AppSettings {
 
 export function saveSettings(input: unknown) {
 	const existing = getSettings();
-	const patch = input && typeof input === 'object' ? (input as Partial<AppSettings>) : {};
+	const patch = settingsPatchSchema.parse(input);
 	const tmdbApiKey =
 		typeof patch.tmdbApiKey === 'string' && isMaskedKey(patch.tmdbApiKey)
 			? existing.tmdbApiKey

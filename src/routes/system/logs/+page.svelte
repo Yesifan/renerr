@@ -1,7 +1,13 @@
 <script lang="ts">
+	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import * as Empty from '$lib/components/ui/empty';
+	import * as Table from '$lib/components/ui/table';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SectionPanel from '$lib/components/SectionPanel.svelte';
-	import { api, post, statusClass, type LogEntry } from '$lib/client/api';
+	import { api, post } from '$lib/client/api';
+	import { statusClass } from '$lib/client/formatters';
+	import type { LogEntry } from '$lib/schemas/domain';
 	import { onMount } from 'svelte';
 
 	let logs = $state<LogEntry[]>([]);
@@ -40,45 +46,43 @@
 	<title>任务日志 - Renarr</title>
 </svelte:head>
 
-<header class="mb-6 flex items-center justify-between">
-	<div>
-		<h1 class="text-2xl font-semibold text-slate-100">任务日志</h1>
-		<p class="mt-1 text-sm text-slate-400">后台执行和集成日志。</p>
-	</div>
-	<div class="flex items-center gap-3">
-		{#if message}<span class="text-sm text-slate-400">{message}</span>{/if}
+<PageHeader title="任务日志" description="后台执行和集成日志。" {message}>
+	{#snippet actions()}
 		<Button disabled={busy} onclick={() => refresh()} variant="outline">刷新</Button>
 		<Button disabled={busy} onclick={clearLogs} variant="outline">清空日志</Button>
-	</div>
-</header>
+	{/snippet}
+</PageHeader>
 
 <SectionPanel title="日志">
-	<div class="overflow-x-auto rounded-md border border-slate-800">
-		<table class="w-full text-left text-sm">
-			<thead class="bg-slate-900 text-slate-400">
-				<tr>
-					<th class="px-4 py-3 font-medium">时间</th>
-					<th class="px-4 py-3 font-medium">级别</th>
-					<th class="px-4 py-3 font-medium">组件</th>
-					<th class="px-4 py-3 font-medium">消息</th>
-				</tr>
-			</thead>
-			<tbody class="divide-y divide-slate-800 bg-slate-950/60">
+	{#if logs.length}
+		<Table.Root>
+			<Table.Header>
+				<Table.Row>
+					<Table.Head>时间</Table.Head>
+					<Table.Head>级别</Table.Head>
+					<Table.Head>组件</Table.Head>
+					<Table.Head>消息</Table.Head>
+				</Table.Row>
+			</Table.Header>
+			<Table.Body>
 				{#each logs as entry (entry.id)}
-					<tr>
-						<td class="px-4 py-3 text-slate-300">{entry.time}</td>
-						<td class="px-4 py-3">
-							<span class={statusClass(entry.level === 'error' ? 'failed' : entry.level)}>{entry.level}</span>
-						</td>
-						<td class="px-4 py-3 font-medium text-slate-100">{entry.component}</td>
-						<td class="px-4 py-3 text-slate-300">{entry.message}</td>
-					</tr>
-				{:else}
-					<tr>
-						<td class="px-4 py-6 text-slate-500" colspan="4">暂无日志。</td>
-					</tr>
+					<Table.Row>
+						<Table.Cell>{entry.time}</Table.Cell>
+						<Table.Cell>
+							<Badge variant="outline" class={statusClass(entry.level === 'error' ? 'failed' : entry.level)}>{entry.level}</Badge>
+						</Table.Cell>
+						<Table.Cell class="font-medium text-foreground">{entry.component}</Table.Cell>
+						<Table.Cell>{entry.message}</Table.Cell>
+					</Table.Row>
 				{/each}
-			</tbody>
-		</table>
-	</div>
+			</Table.Body>
+		</Table.Root>
+	{:else}
+		<Empty.Root>
+			<Empty.Header>
+				<Empty.Title>暂无日志</Empty.Title>
+				<Empty.Description>后台执行和集成日志会显示在这里。</Empty.Description>
+			</Empty.Header>
+		</Empty.Root>
+	{/if}
 </SectionPanel>

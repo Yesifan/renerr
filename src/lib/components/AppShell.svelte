@@ -1,23 +1,29 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { api, libraryLabel, type Workspace } from '$lib/client/api';
+	import { api } from '$lib/client/api';
+	import { libraryLabel } from '$lib/client/formatters';
+	import { Input } from '$lib/components/ui/input';
+	import * as Select from '$lib/components/ui/select';
+	import * as Sidebar from '$lib/components/ui/sidebar';
 	import { getLocale, locales, messages as m, setBrowserLocale, type Locale } from '$lib/i18n';
+	import type { Library } from '$lib/schemas/domain';
 	import { onMount } from 'svelte';
 
-	let { children } = $props();
-	let workspace = $state<Workspace>({
-		sources: [],
-		libraries: [],
-		items: [],
-		tasks: [],
-		settings: { tmdbApiKey: '' }
-	});
+	type Props = {
+		initialLibraries: Library[];
+		children?: import('svelte').Snippet;
+	};
+
+	let { initialLibraries, children }: Props = $props();
+	let refreshedLibraries = $state<Library[] | null>(null);
+	let libraries = $derived(refreshedLibraries ?? initialLibraries);
 
 	let pathname = $derived(page.url.pathname);
 	let settingsOpen = $derived(pathname.startsWith('/settings'));
 	let systemOpen = $derived(pathname.startsWith('/system') || pathname === '/tasks');
 	let locale = $state<Locale>(getLocale());
+	let currentLocaleLabel = $derived(locale === 'zh-CN' ? m.language_zh_cn() : locale);
 
 	onMount(() => {
 		void refresh();
@@ -27,103 +33,129 @@
 
 	async function refresh() {
 		try {
-			workspace = await api<Workspace>('/api/workspace');
+			refreshedLibraries = await api<Library[]>('/api/libraries');
 		} catch {
 			// The pages surface API errors locally; the shell keeps stale navigation when possible.
 		}
 	}
 
-	function navClass(href: string) {
-		const active = href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
-		return [
-			'block rounded-md px-3 py-2 transition',
-			active ? 'bg-cyan-500/10 text-cyan-100 ring-1 ring-cyan-400/20' : 'text-slate-300 hover:bg-white/5 hover:text-white'
-		];
-	}
-
-	function sectionClass(active: boolean) {
-		return [
-			'flex items-center gap-2 rounded-md px-3 py-2 font-medium transition',
-			active ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white'
-		];
-	}
-
-	function childClass(href: string) {
-		const active = pathname === href || pathname.startsWith(`${href}/`);
-		return [
-			'block border-l py-2 pl-8 pr-3 transition',
-			active
-				? 'border-cyan-400 text-cyan-200'
-				: 'border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-200'
-		];
+	function isActive(href: string) {
+		return href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
 	}
 
 	function updateLocale() {
 		setBrowserLocale(locale);
 	}
+
+	$effect(updateLocale);
 </script>
 
-<div class="min-h-screen bg-slate-950 text-slate-100">
-	<header class="z-20 flex min-h-14 flex-wrap items-center gap-3 border-b border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur md:fixed md:inset-x-0 md:top-0 md:h-14 md:flex-nowrap md:gap-8 md:px-6 md:py-0">
-		<a class="text-xl font-semibold tracking-wide text-white" href={resolve('/')}>{m.app_title()}</a>
-		<label class="flex min-w-0 flex-1 items-center gap-3 rounded-md border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-sm text-slate-400 md:max-w-[340px]">
-			<span class="text-base">⌕</span>
-			<input
-				class="w-full border-0 bg-transparent p-0 text-slate-100 placeholder:text-slate-500 focus:ring-0"
-				placeholder={m.search_placeholder()}
-			/>
-		</label>
-		<label class="flex items-center gap-2 text-sm text-slate-400 md:ml-auto">
-			<span>{m.language_label()}</span>
-			<select
-				bind:value={locale}
-				onchange={updateLocale}
-				class="rounded-md border border-slate-800 bg-slate-900 px-2 py-1 text-slate-100"
+<Sidebar.Provider>
+	<div class="grid min-h-svh w-full grid-rows-[auto_1fr] bg-background text-foreground">
+		<header class="sticky top-0 z-20 flex min-h-14 flex-wrap items-center gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:h-14 md:flex-nowrap md:gap-8 md:px-6 md:py-0">
+			<a class="text-xl font-semibold tracking-wide text-foreground" href={resolve('/')}>{m.app_title()}</a>
+			<label class="flex min-w-0 flex-1 items-center gap-3 text-sm text-muted-foreground md:max-w-[340px]">
+				<span class="text-base">⌕</span>
+				<Input class="border-0 bg-transparent px-0 focus-visible:ring-0" placeholder={m.search_placeholder()} />
+			</label>
+			<div class="flex items-center gap-2 text-sm text-muted-foreground md:ml-auto">
+				<span>{m.language_label()}</span>
+				<Select.Root type="single" bind:value={locale}>
+					<Select.Trigger size="sm">{currentLocaleLabel}</Select.Trigger>
+					<Select.Content>
+						<Select.Group>
+							{#each locales as option (option)}
+								<Select.Item value={option}>{m.language_zh_cn()}</Select.Item>
+							{/each}
+						</Select.Group>
+					</Select.Content>
+				</Select.Root>
+			</div>
+		</header>
+
+		<div class="grid min-h-0 md:grid-cols-[260px_minmax(0,1fr)]">
+			<Sidebar.Root
+				collapsible="none"
+				class="min-h-0 border-b border-border bg-sidebar text-sm text-sidebar-foreground md:w-[260px] md:border-b-0 md:border-r"
 			>
-				{#each locales as option (option)}
-					<option value={option}>{m.language_zh_cn()}</option>
-				{/each}
-			</select>
-		</label>
-	</header>
+				<Sidebar.Content class="px-3 py-4 md:py-5">
+					<Sidebar.Group>
+						<Sidebar.Menu>
+							<Sidebar.MenuItem>
+								<Sidebar.MenuButton isActive={isActive('/')}>
+									{#snippet child({ props })}
+										<a href={resolve('/')} {...props}>{m.nav_media_library()}</a>
+									{/snippet}
+								</Sidebar.MenuButton>
+							</Sidebar.MenuItem>
+							<Sidebar.MenuSub>
+								{#each libraries as library (library.id)}
+									<Sidebar.MenuSubItem>
+										<Sidebar.MenuSubButton isActive={isActive(`/libraries/${library.id}`)}>
+											{#snippet child({ props })}
+												<a href={resolve(`/libraries/${library.id}`)} {...props}>{libraryLabel(library)}</a>
+											{/snippet}
+										</Sidebar.MenuSubButton>
+									</Sidebar.MenuSubItem>
+								{/each}
+							</Sidebar.MenuSub>
+						</Sidebar.Menu>
+					</Sidebar.Group>
 
-	<div class="md:grid md:min-h-screen md:grid-cols-[260px_1fr] md:pt-14">
-		<aside class="border-b border-white/10 bg-slate-950 text-sm md:fixed md:bottom-0 md:left-0 md:top-14 md:w-[260px] md:overflow-y-auto md:border-b-0 md:border-r">
-			<nav class="flex flex-col gap-4 px-3 py-4 md:py-5">
-				<section>
-					<a class={navClass('/')} href={resolve('/')}>{m.nav_media_library()}</a>
-					<div class="pb-2">
-						{#each workspace.libraries as library (library.id)}
-							<a class={childClass(`/libraries/${library.id}`)} href={resolve(`/libraries/${library.id}`)}>
-								{libraryLabel(library)}
-							</a>
-						{/each}
-					</div>
-				</section>
+					<Sidebar.Group>
+						<Sidebar.Menu>
+							<Sidebar.MenuItem>
+								<Sidebar.MenuButton isActive={settingsOpen}>
+									{#snippet child({ props })}
+										<a href={resolve('/settings/media')} {...props}>{m.nav_settings()}</a>
+									{/snippet}
+								</Sidebar.MenuButton>
+							</Sidebar.MenuItem>
+							<Sidebar.MenuSub>
+								<Sidebar.MenuSubItem>
+									<Sidebar.MenuSubButton isActive={isActive('/settings/media')}>
+										{#snippet child({ props })}
+											<a href={resolve('/settings/media')} {...props}>{m.nav_media_settings()}</a>
+										{/snippet}
+									</Sidebar.MenuSubButton>
+								</Sidebar.MenuSubItem>
+							</Sidebar.MenuSub>
+						</Sidebar.Menu>
+					</Sidebar.Group>
 
-				<section>
-					<a class={sectionClass(settingsOpen)} href={resolve('/settings/media')}>{m.nav_settings()}</a>
-					<div class="pb-2">
-						<a class={childClass('/settings/media')} href={resolve('/settings/media')}>{m.nav_media_settings()}</a>
-					</div>
-				</section>
+					<Sidebar.Group>
+						<Sidebar.Menu>
+							<Sidebar.MenuItem>
+								<Sidebar.MenuButton isActive={systemOpen}>
+									{#snippet child({ props })}
+										<a href={resolve('/system/tasks')} {...props}>{m.nav_system()}</a>
+									{/snippet}
+								</Sidebar.MenuButton>
+							</Sidebar.MenuItem>
+							<Sidebar.MenuSub>
+								<Sidebar.MenuSubItem>
+									<Sidebar.MenuSubButton isActive={isActive('/system/tasks')}>
+										{#snippet child({ props })}
+											<a href={resolve('/system/tasks')} {...props}>{m.nav_tasks()}</a>
+										{/snippet}
+									</Sidebar.MenuSubButton>
+								</Sidebar.MenuSubItem>
+								<Sidebar.MenuSubItem>
+									<Sidebar.MenuSubButton isActive={isActive('/system/logs')}>
+										{#snippet child({ props })}
+											<a href={resolve('/system/logs')} {...props}>{m.nav_logs()}</a>
+										{/snippet}
+									</Sidebar.MenuSubButton>
+								</Sidebar.MenuSubItem>
+							</Sidebar.MenuSub>
+						</Sidebar.Menu>
+					</Sidebar.Group>
+				</Sidebar.Content>
+			</Sidebar.Root>
 
-				<section>
-					<a class={sectionClass(systemOpen)} href={resolve('/system/tasks')}>{m.nav_system()}</a>
-					<div class="pb-2">
-						<a class={childClass('/system/tasks')} href={resolve('/system/tasks')}>{m.nav_tasks()}</a>
-						<a class={childClass('/system/logs')} href={resolve('/system/logs')}>{m.nav_logs()}</a>
-					</div>
-				</section>
-			</nav>
-		</aside>
-
-		<div class="hidden md:block"></div>
-
-		<div class="min-w-0">
-			<main class="min-w-0 bg-slate-900 p-4 md:p-8">
+			<main class="min-w-0 bg-muted p-4 md:p-6 lg:p-8">
 				{@render children?.()}
 			</main>
 		</div>
 	</div>
-</div>
+</Sidebar.Provider>

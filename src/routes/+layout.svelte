@@ -3,14 +3,15 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+	import type { LayoutProps } from './$types';
 
-	let { children } = $props();
+	let { data, children }: LayoutProps = $props();
 	const queryClient = new QueryClient();
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 <QueryClientProvider client={queryClient}>
-	<AppShell>
+	<AppShell initialLibraries={data.navigationLibraries}>
 		{@render children()}
 	</AppShell>
 </QueryClientProvider>

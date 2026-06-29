@@ -1,4 +1,6 @@
 <script lang="ts">
+	import * as Card from '$lib/components/ui/card';
+
 	type Props = {
 		title: string;
 		description?: string;
@@ -9,21 +11,19 @@
 	let { title, description, children, actions }: Props = $props();
 </script>
 
-<section class="rounded-lg border border-slate-800 bg-slate-950/70 shadow-sm">
-	<header class="flex items-center justify-between gap-4 border-b border-slate-800 px-6 py-4">
-		<div>
-			<h2 class="text-xl font-semibold text-slate-100">{title}</h2>
-			{#if description}
-				<p class="mt-1 text-sm text-slate-400">{description}</p>
-			{/if}
-		</div>
-		{#if actions}
-			<div class="flex shrink-0 items-center gap-2">
-				{@render actions()}
-			</div>
+<Card.Root class="min-w-0 max-w-full">
+	<Card.Header class="border-b border-border">
+		<Card.Title>{title}</Card.Title>
+		{#if description}
+			<Card.Description>{description}</Card.Description>
 		{/if}
-	</header>
-	<div class="px-6 py-5">
+		{#if actions}
+			<Card.Action class="flex items-center gap-2">
+				{@render actions()}
+			</Card.Action>
+		{/if}
+	</Card.Header>
+	<Card.Content class="min-w-0">
 		{@render children?.()}
-	</div>
-</section>
+	</Card.Content>
+</Card.Root>

@@ -2,7 +2,11 @@ import { getSqlite } from '$lib/server/db';
 import { newId } from '$lib/server/id';
 import { decryptCredential, encryptCredential } from '$lib/server/security/credentials';
 import { nowIso } from '$lib/server/time';
-import { libraryPathInputSchema, webdavSourceInputSchema } from '$lib/schemas/domain';
+import {
+	libraryPathInputSchema,
+	libraryPathUpdateSchema,
+	webdavSourceInputSchema
+} from '$lib/schemas/domain';
 import { WebDavFileClient } from '$lib/server/integrations/webdav-client';
 import { ApiError } from '$lib/server/api';
 import { normalizeRemotePath } from './paths';
@@ -156,7 +160,7 @@ export function createLibrary(input: unknown) {
 }
 
 export function updateLibrary(id: string, input: unknown) {
-	const parsed = libraryPathInputSchema.partial().pick({ autoOrganize: true }).parse(input);
+	const parsed = libraryPathUpdateSchema.parse(input);
 	const existing = getLibrary(id);
 	const now = nowIso();
 	getSqlite()

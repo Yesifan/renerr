@@ -7,16 +7,26 @@
 	--color-foreground: #e7eaf0;
 	--color-card: #0f172a;
 	--color-card-foreground: #f8fafc;
+	--color-popover: #0f172a;
+	--color-popover-foreground: #f8fafc;
 	--color-muted: #1e293b;
 	--color-muted-foreground: #94a3b8;
-	--color-border: #334155;
-	--color-input: #0f172a;
+	--color-accent: #1e293b;
+	--color-accent-foreground: #f8fafc;
+	--color-border: #475569;
+	--color-input: #1e293b;
 	--color-ring: #22d3ee;
 	--color-primary: #22d3ee;
 	--color-primary-foreground: #020617;
 	--color-secondary: #1e293b;
 	--color-secondary-foreground: #f8fafc;
 	--color-destructive: #f87171;
+	--color-sidebar: #0d1017;
+	--color-sidebar-foreground: #e7eaf0;
+	--color-sidebar-accent: #1e293b;
+	--color-sidebar-accent-foreground: #f8fafc;
+	--color-sidebar-border: #334155;
+	--color-sidebar-ring: #22d3ee;
 }
 
 :root {
