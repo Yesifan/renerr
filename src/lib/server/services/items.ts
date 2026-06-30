@@ -1,4 +1,6 @@
-import { getSqlite } from '$lib/server/db';
+import { asc, desc, eq } from 'drizzle-orm';
+import { getDb } from '$lib/server/db';
+import { executionRecords, libraryItems, renamePlanItems } from '$lib/server/db/schema';
 import { posterUrl } from './tmdb';
 import { getClientForSource, getLibrary } from './sources';
 import { isVideoPath, joinRemote } from './paths';
@@ -6,39 +8,39 @@ import { parseMovieName, parseTvName } from './parser';
 import { ApiError } from '$lib/server/api';
 
 export function listItems(libraryPathId?: string) {
-	const rows = (
-		libraryPathId
-			? getSqlite()
-					.prepare('select * from library_items where library_path_id = ? order by top_level_path')
-					.all(libraryPathId)
-			: getSqlite().prepare('select * from library_items order by updated_at desc').all()
-	) as Record<string, unknown>[];
+	const rows = libraryPathId
+		? getDb()
+				.select()
+				.from(libraryItems)
+				.where(eq(libraryItems.libraryPathId, libraryPathId))
+				.orderBy(asc(libraryItems.topLevelPath))
+				.all()
+		: getDb().select().from(libraryItems).orderBy(desc(libraryItems.updatedAt)).all();
 	return rows.map(mapItem);
 }
 
 export function getItem(id: string) {
-	const row = getSqlite().prepare('select * from library_items where id = ?').get(id);
+	const row = getDb().select().from(libraryItems).where(eq(libraryItems.id, id)).get();
 	if (!row) throw new ApiError('item.not_found', 'Library item not found', 404);
-	return mapItem(row as Record<string, unknown>);
+	return mapItem(row);
 }
 
 export async function getItemDetail(id: string) {
-	const row = getSqlite().prepare('select * from library_items where id = ?').get(id) as
-		Record<string, unknown> | undefined;
+	const row = getDb().select().from(libraryItems).where(eq(libraryItems.id, id)).get();
 	if (!row) throw new ApiError('item.not_found', 'Library item not found', 404);
 	const item = mapItem(row);
-	const library = getLibrary(String(row.library_path_id));
+	const library = getLibrary(row.libraryPathId);
 	const client = getClientForSource(library.sourceId);
-	const root = joinRemote(library.path, String(row.top_level_path));
+	const root = joinRemote(library.path, row.topLevelPath);
 	const files =
-		String(row.kind) === 'file'
+		row.kind === 'file'
 			? [
 					{
 						path: root,
-						basename: String(row.top_level_path),
+						basename: row.topLevelPath,
 						type: 'file' as const,
-						video: isVideoPath(String(row.top_level_path)),
-						compliance: classifyVideo(library.mediaType, String(row.top_level_path))
+						video: isVideoPath(row.topLevelPath),
+						compliance: classifyVideo(library.mediaType, row.topLevelPath)
 					}
 				]
 			: await listDetailEntries(
@@ -47,26 +49,30 @@ export async function getItemDetail(id: string) {
 					library.mediaType === 'movie' ? 1 : 2,
 					library.mediaType
 				);
-	const executionRecords = getSqlite()
-		.prepare(
-			`select er.*
-			 from execution_records er
-			 join rename_plan_items rpi on rpi.id = er.plan_item_id
-			 where rpi.library_item_id = ?
-			 order by er.created_at desc
-			 limit 50`
-		)
-		.all(id)
+	const records = getDb()
+		.select({
+			id: executionRecords.id,
+			sourcePath: executionRecords.sourcePath,
+			targetPath: executionRecords.targetPath,
+			status: executionRecords.status,
+			error: executionRecords.error,
+			contextJson: executionRecords.contextJson,
+			createdAt: executionRecords.createdAt
+		})
+		.from(executionRecords)
+		.innerJoin(renamePlanItems, eq(renamePlanItems.id, executionRecords.planItemId))
+		.where(eq(renamePlanItems.libraryItemId, id))
+		.orderBy(desc(executionRecords.createdAt))
+		.limit(50)
+		.all()
 		.map((record) => ({
-			id: String((record as Record<string, unknown>).id),
-			sourcePath: String((record as Record<string, unknown>).source_path),
-			targetPath: String((record as Record<string, unknown>).target_path),
-			status: String((record as Record<string, unknown>).status),
-			error: (record as Record<string, unknown>).error
-				? String((record as Record<string, unknown>).error)
-				: null,
-			context: JSON.parse(String((record as Record<string, unknown>).context_json || '{}')),
-			createdAt: String((record as Record<string, unknown>).created_at)
+			id: record.id,
+			sourcePath: record.sourcePath,
+			targetPath: record.targetPath,
+			status: record.status,
+			error: record.error,
+			context: JSON.parse(record.contextJson || '{}'),
+			createdAt: record.createdAt
 		}));
 	return {
 		item,
@@ -79,7 +85,7 @@ export async function getItemDetail(id: string) {
 			lastScannedAt: item.lastScannedAt,
 			lastExecutionSummary: item.lastExecutionSummary
 		},
-		executionRecords
+		executionRecords: records
 	};
 }
 
@@ -94,61 +100,55 @@ export function setItemIdentity(
 		posterPath?: string;
 	}
 ) {
-	getSqlite()
-		.prepare(
-			`update library_items set
-			 status = 'identified', source = 'tmdb', source_media_type = @sourceMediaType,
-			 source_media_id = @sourceMediaId, title = @title, original_title = @originalTitle,
-			 year = @year, poster_path = @posterPath, confidence = 'manual',
-			 review_reason = null, updated_at = @updatedAt
-			 where id = @id`
-		)
-		.run({
-			id,
-			...identity,
+	getDb()
+		.update(libraryItems)
+		.set({
+			status: 'identified',
+			source: 'tmdb',
+			sourceMediaType: identity.sourceMediaType,
+			sourceMediaId: identity.sourceMediaId,
+			title: identity.title,
 			originalTitle: identity.originalTitle || identity.title,
 			year: identity.year || null,
 			posterPath: identity.posterPath || null,
+			confidence: 'manual',
+			reviewReason: null,
 			updatedAt: new Date().toISOString()
-		});
+		})
+		.where(eq(libraryItems.id, id))
+		.run();
 	return getItem(id);
 }
 
-export function mapItem(row: Record<string, unknown>) {
-	const sourceMediaId = row.source_media_id ? String(row.source_media_id) : null;
-	const status =
-		String(row.status) === 'failed'
-			? sourceMediaId
-				? 'identified'
-				: 'pending_review'
-			: String(row.status);
+export function mapItem(row: typeof libraryItems.$inferSelect) {
+	const sourceMediaId = row.sourceMediaId;
 	return {
-		id: String(row.id),
-		libraryPathId: String(row.library_path_id),
-		kind: row.kind as 'folder' | 'file',
-		topLevelPath: String(row.top_level_path),
-		status,
-		source: row.source ? String(row.source) : null,
-		sourceMediaType: row.source_media_type ? String(row.source_media_type) : null,
+		id: row.id,
+		libraryPathId: row.libraryPathId,
+		kind: row.kind,
+		topLevelPath: row.topLevelPath,
+		status: row.status,
+		source: row.source,
+		sourceMediaType: row.sourceMediaType,
 		sourceMediaId,
-		title: row.title ? String(row.title) : null,
-		originalTitle: row.original_title ? String(row.original_title) : null,
-		year: row.year ? Number(row.year) : null,
-		posterPath: row.poster_path ? String(row.poster_path) : null,
-		posterUrl: posterUrl(row.poster_path ? String(row.poster_path) : null),
-		confidence: row.confidence ? String(row.confidence) : null,
-		reviewReason: row.review_reason ? String(row.review_reason) : null,
-		recognitionCandidates: row.recognition_candidates_json
-			? JSON.parse(String(row.recognition_candidates_json))
+		title: row.title,
+		originalTitle: row.originalTitle,
+		year: row.year,
+		posterPath: row.posterPath,
+		posterUrl: posterUrl(row.posterPath),
+		confidence: row.confidence,
+		reviewReason: row.reviewReason,
+		recognitionCandidates: row.recognitionCandidatesJson
+			? JSON.parse(row.recognitionCandidatesJson)
 			: [],
-		videoFileCount: Number(row.video_file_count),
-		compliantFileCount: Number(row.compliant_file_count),
-		nonCompliantFileCount: Number(row.non_compliant_file_count),
-		unknownFileCount: Number(row.unknown_file_count),
-		lastScannedAt: row.last_scanned_at ? String(row.last_scanned_at) : null,
-		lastInspectedAt: row.last_inspected_at ? String(row.last_inspected_at) : null,
-		lastExecutionSummary: row.last_execution_summary_json
-			? JSON.parse(String(row.last_execution_summary_json))
+		videoFileCount: row.videoFileCount,
+		compliantFileCount: row.compliantFileCount,
+		nonCompliantFileCount: row.nonCompliantFileCount,
+		unknownFileCount: row.unknownFileCount,
+		lastScannedAt: row.lastScannedAt,
+		lastInspectedAt: row.lastInspectedAt,
+		lastExecutionSummary: row.lastExecutionSummaryJson
+			? JSON.parse(row.lastExecutionSummaryJson)
 			: null
 	};
 }

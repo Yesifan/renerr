@@ -1,51 +1,69 @@
-import { getSqlite } from '$lib/server/db';
+import { and, asc, desc, eq } from 'drizzle-orm';
+import { getDb } from '$lib/server/db';
+import { tasks } from '$lib/server/db/schema';
 import { newId } from '$lib/server/id';
 import { nowIso } from '$lib/server/time';
 
 export function enqueueTask(type: string, payload: unknown) {
 	const id = newId();
-	getSqlite()
-		.prepare(
-			`insert into tasks (id, type, state, payload_json, created_at)
-			 values (@id, @type, 'queued', @payloadJson, @createdAt)`
-		)
-		.run({ id, type, payloadJson: JSON.stringify(payload), createdAt: nowIso() });
+	getDb()
+		.insert(tasks)
+		.values({
+			id,
+			type,
+			state: 'queued',
+			payloadJson: JSON.stringify(payload),
+			createdAt: nowIso()
+		})
+		.run();
 	return getTask(id);
 }
 
 export function listTasks(limit = 100) {
-	return (
-		getSqlite()
-			.prepare('select * from tasks order by created_at desc limit ?')
-			.all(limit) as Record<string, unknown>[]
-	).map(mapTask);
+	return getDb()
+		.select()
+		.from(tasks)
+		.orderBy(desc(tasks.createdAt))
+		.limit(limit)
+		.all()
+		.map(mapTask);
 }
 
 export function getTask(id: string) {
-	const row = getSqlite().prepare('select * from tasks where id = ?').get(id);
+	const row = getDb().select().from(tasks).where(eq(tasks.id, id)).get();
 	if (!row) throw new Error('Task not found');
-	return mapTask(row as Record<string, unknown>);
+	return mapTask(row);
 }
 
 export function failRunningTasksOnStartup() {
-	getSqlite()
-		.prepare(
-			`update tasks set state = 'failed', error = 'Worker restarted while task was running', finished_at = ?
-			 where state = 'running'`
-		)
-		.run(nowIso());
+	getDb()
+		.update(tasks)
+		.set({
+			state: 'failed',
+			error: 'Worker restarted while task was running',
+			finishedAt: nowIso()
+		})
+		.where(eq(tasks.state, 'running'))
+		.run();
 }
 
 export function claimNextTask() {
-	const db = getSqlite();
+	const db = getDb();
 	const task = db
-		.prepare("select * from tasks where state = 'queued' order by created_at limit 1")
-		.get() as Record<string, unknown> | undefined;
+		.select()
+		.from(tasks)
+		.where(eq(tasks.state, 'queued'))
+		.orderBy(asc(tasks.createdAt))
+		.limit(1)
+		.get();
 	if (!task) return null;
+	const startedAt = nowIso();
 	const result = db
-		.prepare("update tasks set state = 'running', started_at = ? where id = ? and state = 'queued'")
-		.run(nowIso(), task.id);
-	return result.changes ? mapTask({ ...task, state: 'running', started_at: nowIso() }) : null;
+		.update(tasks)
+		.set({ state: 'running', startedAt })
+		.where(and(eq(tasks.id, task.id), eq(tasks.state, 'queued')))
+		.run();
+	return result.changes ? mapTask({ ...task, state: 'running', startedAt }) : null;
 }
 
 export function finishTask(
@@ -53,27 +71,31 @@ export function finishTask(
 	state: 'succeeded' | 'partially_failed' | 'failed',
 	error?: string
 ) {
-	getSqlite()
-		.prepare('update tasks set state = ?, error = ?, finished_at = ? where id = ?')
-		.run(state, error || null, nowIso(), id);
+	getDb()
+		.update(tasks)
+		.set({ state, error: error || null, finishedAt: nowIso() })
+		.where(eq(tasks.id, id))
+		.run();
 }
 
 export function updateTaskProgress(id: string, progress: unknown) {
-	getSqlite()
-		.prepare('update tasks set progress_json = ? where id = ?')
-		.run(JSON.stringify(progress), id);
+	getDb()
+		.update(tasks)
+		.set({ progressJson: JSON.stringify(progress) })
+		.where(eq(tasks.id, id))
+		.run();
 }
 
-function mapTask(row: Record<string, unknown>) {
+function mapTask(row: typeof tasks.$inferSelect) {
 	return {
-		id: String(row.id),
-		type: String(row.type),
-		state: String(row.state),
-		payload: JSON.parse(String(row.payload_json || '{}')),
-		progress: row.progress_json ? JSON.parse(String(row.progress_json)) : null,
-		error: row.error ? String(row.error) : null,
-		createdAt: String(row.created_at),
-		startedAt: row.started_at ? String(row.started_at) : null,
-		finishedAt: row.finished_at ? String(row.finished_at) : null
+		id: row.id,
+		type: row.type,
+		state: row.state,
+		payload: JSON.parse(row.payloadJson || '{}'),
+		progress: row.progressJson ? JSON.parse(row.progressJson) : null,
+		error: row.error,
+		createdAt: row.createdAt,
+		startedAt: row.startedAt,
+		finishedAt: row.finishedAt
 	};
 }

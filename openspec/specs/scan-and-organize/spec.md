@@ -1,6 +1,6 @@
 ## Purpose
 
-定义媒体库扫描、item 状态流转、rename plan 执行和执行结果记录的核心规则。
+定义媒体库扫描、item 状态流转、rename plan 执行和执行结果记录的核心规则，确保自动整理、手动整理和 worker 失败处理共享同一套业务语义。
 
 ## Requirements
 
@@ -149,16 +149,6 @@ worker SHALL 在单个 plan item 失败后继续执行剩余 plan items。
 - **WHEN** rename plan 对某个 library item 的任意 selected row 执行失败
 - **THEN** 系统 MUST 在 task、log 或 execution records 中保留失败原因
 - **AND** 系统 MUST NOT 将该 item 标记为 `failed`
-
-#### Scenario: 旧 failed item 有 identity
-
-- **WHEN** 系统读取或迁移 status 为 `failed` 且已有 source identity 的旧 item
-- **THEN** 系统 MUST 将其兼容为 `identified`
-
-#### Scenario: 旧 failed item 没有 identity
-
-- **WHEN** 系统读取或迁移 status 为 `failed` 且没有 source identity 的旧 item
-- **THEN** 系统 MUST 将其兼容为 `pending_review`
 
 ### Requirement: Sidecar 和 metadata 遵循 V1 规则
 

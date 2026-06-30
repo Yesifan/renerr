@@ -12,8 +12,9 @@ async function freshDb() {
 	vi.doUnmock('./tmdb');
 	process.env.RENARR_DATA_DIR = mkdtempSync(join(tmpdir(), 'renarr-test-'));
 	process.env.RENARR_SECRET_KEY = secret;
-	const { getSqlite } = await import('$lib/server/db');
-	return getSqlite();
+	const { getSqliteForTest, pushCurrentSchemaForTest } = await import('$lib/server/test-db');
+	pushCurrentSchemaForTest();
+	return getSqliteForTest();
 }
 
 function seedLibrary(db: { prepare(sql: string): { run(...params: unknown[]): unknown } }) {
@@ -80,7 +81,7 @@ describe('V1 core flows', () => {
 			}),
 			getClientForSource: () => ({ listDirectory: rootList })
 		}));
-		const db = (await import('$lib/server/db')).getSqlite();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items
@@ -119,14 +120,14 @@ describe('V1 core flows', () => {
 			}),
 			getClientForSource: () => ({ listDirectory: rootList })
 		}));
-		const db = (await import('$lib/server/db')).getSqlite();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items
 			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id, title,
 			  original_title, year, confidence, video_file_count, compliant_file_count, non_compliant_file_count,
 			  unknown_file_count, created_at, updated_at)
-			 values ('oldItem', 'lib1', 'folder', 'XShow1', 'failed', 'tmdb', 'tv', '100', 'Show1',
+			 values ('oldItem', 'lib1', 'folder', 'XShow1', 'organized', 'tmdb', 'tv', '100', 'Show1',
 			  'Show1', 2026, 'manual', 1, 0, 1, 0, 'now', 'now')`
 		).run();
 		db.prepare(
@@ -175,7 +176,7 @@ describe('V1 core flows', () => {
 			}),
 			getClientForSource: () => ({ listDirectory: vi.fn() })
 		}));
-		const db = (await import('$lib/server/db')).getSqlite();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items
@@ -186,42 +187,6 @@ describe('V1 core flows', () => {
 		const { scanLibraryItem } = await import('./scanner');
 
 		await expect(scanLibraryItem('item1')).rejects.toMatchObject({ code: 'item.scan_not_allowed' });
-		db.close();
-	});
-
-	test('scanLibraryItem converts legacy failed items without identity to pending review', async () => {
-		await freshDb();
-		vi.doMock('./sources', () => ({
-			getLibrary: () => ({
-				id: 'lib1',
-				sourceId: 'source1',
-				sourceName: 'dav1',
-				path: '/tv',
-				mediaType: 'tv',
-				autoOrganize: false,
-				createdAt: '',
-				updatedAt: ''
-			}),
-			getClientForSource: () => ({ listDirectory: vi.fn() })
-		}));
-		const db = (await import('$lib/server/db')).getSqlite();
-		seedLibrary(db);
-		db.prepare(
-			`insert into library_items
-			 (id, library_path_id, kind, top_level_path, status, video_file_count, compliant_file_count,
-			  non_compliant_file_count, unknown_file_count, created_at, updated_at)
-			 values ('item1', 'lib1', 'folder', 'Show1', 'failed', 0, 0, 0, 0, 'now', 'now')`
-		).run();
-		const { scanLibraryItem } = await import('./scanner');
-
-		await expect(scanLibraryItem('item1')).rejects.toMatchObject({ code: 'item.scan_not_allowed' });
-
-		expect(
-			db.prepare('select status, review_reason from library_items where id = ?').get('item1')
-		).toEqual({
-			status: 'pending_review',
-			review_reason: 'legacy_failed'
-		});
 		db.close();
 	});
 
@@ -247,7 +212,7 @@ describe('V1 core flows', () => {
 				exists
 			})
 		}));
-		const db = (await import('$lib/server/db')).getSqlite();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items
@@ -290,7 +255,7 @@ describe('V1 core flows', () => {
 				exists: vi.fn(async () => false)
 			})
 		}));
-		const db = (await import('$lib/server/db')).getSqlite();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items
@@ -355,7 +320,7 @@ describe('V1 core flows', () => {
 				])
 			})
 		}));
-		const db = (await import('$lib/server/db')).getSqlite();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items
@@ -394,7 +359,7 @@ describe('V1 core flows', () => {
 				exists: vi.fn(async () => false)
 			})
 		}));
-		const db = (await import('$lib/server/db')).getSqlite();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items
@@ -460,42 +425,6 @@ describe('V1 core flows', () => {
 		db.close();
 	});
 
-	test('legacy failed items with identity can create a manual plan draft', async () => {
-		await freshDb();
-		vi.doMock('./sources', () => ({
-			getLibrary: () => ({
-				id: 'lib1',
-				sourceId: 'source1',
-				sourceName: 'dav1',
-				path: '/tv',
-				mediaType: 'tv',
-				autoOrganize: false,
-				createdAt: '',
-				updatedAt: ''
-			}),
-			getClientForSource: () => ({
-				listDirectory: vi.fn(async () => [{ basename: 'Show1.S01E01.mkv', type: 'file' }]),
-				exists: vi.fn(async () => false)
-			})
-		}));
-		const db = (await import('$lib/server/db')).getSqlite();
-		seedLibrary(db);
-		db.prepare(
-			`insert into library_items
-			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id, title,
-			  year, video_file_count, compliant_file_count, non_compliant_file_count, unknown_file_count, created_at, updated_at)
-			 values ('item1', 'lib1', 'folder', 'Show1', 'failed', 'tmdb', 'tv', '100', 'Show1',
-			  2024, 1, 0, 1, 0, 'now', 'now')`
-		).run();
-		const { createDraftForItem } = await import('./planner');
-
-		const draft = await createDraftForItem('item1');
-
-		expect(draft.rows).toHaveLength(1);
-		expect(draft.rows[0].status).toBe('valid');
-		db.close();
-	});
-
 	test('executor continues after a missing source and returns partially_failed', async () => {
 		await freshDb();
 		const moves: string[] = [];
@@ -520,7 +449,7 @@ describe('V1 core flows', () => {
 				writeTextFile: vi.fn(async () => undefined)
 			})
 		}));
-		const db = (await import('$lib/server/db')).getSqlite();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items
@@ -579,7 +508,7 @@ describe('V1 core flows', () => {
 				writeTextFile: vi.fn(async () => undefined)
 			})
 		}));
-		const db = (await import('$lib/server/db')).getSqlite();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items
@@ -640,7 +569,7 @@ describe('V1 core flows', () => {
 				})
 			})
 		}));
-		const db = (await import('$lib/server/db')).getSqlite();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items
@@ -711,7 +640,7 @@ describe('V1 core flows', () => {
 				writeTextFile: vi.fn(async () => undefined)
 			})
 		}));
-		const db = (await import('$lib/server/db')).getSqlite();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items

@@ -1,4 +1,11 @@
-import { getSqlite } from '$lib/server/db';
+import { and, eq, inArray } from 'drizzle-orm';
+import { getDb } from '$lib/server/db';
+import {
+	executionRecords,
+	libraryItems,
+	renamePlanItems,
+	renamePlans
+} from '$lib/server/db/schema';
 import { newId } from '$lib/server/id';
 import { nowIso } from '$lib/server/time';
 import { basename, dirname, joinRemote, sidecarExtensions, stripExt } from './paths';
@@ -15,26 +22,21 @@ type ItemExecutionSummary = {
 };
 
 export async function executeRenamePlan(taskId: string, planId: string) {
-	const db = getSqlite();
-	const plan = db.prepare('select * from rename_plans where id = ?').get(planId) as Record<
-		string,
-		unknown
-	>;
+	const db = getDb();
+	const plan = db.select().from(renamePlans).where(eq(renamePlans.id, planId)).get();
 	if (!plan) throw new Error('Plan not found');
-	const library = getLibrary(String(plan.library_path_id));
+	const library = getLibrary(plan.libraryPathId);
 	const client = getClientForSource(library.sourceId);
-	const rows = db
-		.prepare('select * from rename_plan_items where plan_id = ?')
-		.all(planId) as Record<string, unknown>[];
+	const rows = db.select().from(renamePlanItems).where(eq(renamePlanItems.planId, planId)).all();
 	let ok = 0;
 	let failed = 0;
 	const itemSummaries = new Map<string, ItemExecutionSummary>();
 	const metadataDone = new Set<string>();
 	for (const row of rows) {
-		const itemId = String(row.library_item_id);
-		const originalSource = String(row.source_file_path);
+		const itemId = row.libraryItemId;
+		const originalSource = row.sourceFilePath;
 		let source = originalSource;
-		const target = String(row.target_file_path);
+		const target = row.targetFilePath;
 		const warnings: Record<string, unknown>[] = [];
 		try {
 			if (!(await client.exists(source))) {
@@ -50,7 +52,7 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 					throw new Error('Source file no longer exists');
 				}
 			}
-			const overwrite = String(plan.mode) === 'manual' && Boolean(row.overwrite);
+			const overwrite = plan.mode === 'manual' && row.overwrite;
 			if (!overwrite && (await client.exists(target))) throw new Error('Target file exists');
 			await client.ensureDirectory(dirname(target));
 			await client.moveFile(source, target, { overwrite });
@@ -77,50 +79,54 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 				warnings.push({ type: 'metadata_write_failed', target, error: String(error) });
 				log('warn', 'RenameExecutor', 'Metadata write failed', { target, error: String(error) });
 			}
-			db.prepare("update rename_plan_items set status = 'succeeded' where id = ?").run(row.id);
-			db.prepare(
-				`insert into execution_records
-				 (id, task_id, plan_item_id, source_path, target_path, status, context_json, created_at)
-				 values (?, ?, ?, ?, ?, 'succeeded', ?, ?)`
-			).run(
-				newId(),
-				taskId,
-				row.id,
-				source,
-				target,
-				JSON.stringify({ warnings, overwritten: Boolean(overwrite) }),
-				nowIso()
-			);
+			db.update(renamePlanItems)
+				.set({ status: 'succeeded' })
+				.where(eq(renamePlanItems.id, row.id))
+				.run();
+			db.insert(executionRecords)
+				.values({
+					id: newId(),
+					taskId,
+					planItemId: row.id,
+					sourcePath: source,
+					targetPath: target,
+					status: 'succeeded',
+					contextJson: JSON.stringify({ warnings, overwritten: overwrite }),
+					createdAt: nowIso()
+				})
+				.run();
 			ok += 1;
 			const summary = summaryFor(itemSummaries, itemId);
 			summary.ok += 1;
 			summary.succeededTargets.push(target);
 		} catch (error) {
-			db.prepare("update rename_plan_items set status = 'failed' where id = ?").run(row.id);
-			db.prepare(
-				`insert into execution_records
-				 (id, task_id, plan_item_id, source_path, target_path, status, error, context_json, created_at)
-			 values (?, ?, ?, ?, ?, 'failed', ?, ?, ?)`
-			).run(
-				newId(),
-				taskId,
-				row.id,
-				source,
-				target,
-				String(error),
-				JSON.stringify({ error: String(error) }),
-				nowIso()
-			);
+			db.update(renamePlanItems)
+				.set({ status: 'failed' })
+				.where(eq(renamePlanItems.id, row.id))
+				.run();
+			db.insert(executionRecords)
+				.values({
+					id: newId(),
+					taskId,
+					planItemId: row.id,
+					sourcePath: source,
+					targetPath: target,
+					status: 'failed',
+					error: String(error),
+					contextJson: JSON.stringify({ error: String(error) }),
+					createdAt: nowIso()
+				})
+				.run();
 			failed += 1;
 			summaryFor(itemSummaries, itemId).failed += 1;
 		}
 	}
-	const itemIds = [...new Set(rows.map((row) => String(row.library_item_id)))];
+	const itemIds = [...new Set(rows.map((row) => row.libraryItemId))];
 	for (const itemId of itemIds) {
 		const summary = itemSummaries.get(itemId) ?? { ok: 0, failed: 0, succeededTargets: [] };
 		updateItemAfterExecution(itemId, library.mediaType, summary);
 	}
-	db.prepare("update rename_plans set status = 'executed' where id = ?").run(planId);
+	db.update(renamePlans).set({ status: 'executed' }).where(eq(renamePlans.id, planId)).run();
 	return failed === 0 ? 'succeeded' : ok > 0 ? 'partially_failed' : 'failed';
 }
 
@@ -138,36 +144,38 @@ function updateItemAfterExecution(
 	mediaType: 'movie' | 'tv',
 	summary: ItemExecutionSummary
 ) {
-	const db = getSqlite();
+	const db = getDb();
 	const updatedAt = nowIso();
 	const summaryJson = JSON.stringify({ ok: summary.ok, failed: summary.failed });
 	if (summary.failed > 0) {
-		db.prepare(
-			`update library_items set last_execution_summary_json = @summary,
-			 updated_at = @updatedAt where id = @id and status in ('identified', 'organized')`
-		).run({ id: itemId, summary: summaryJson, updatedAt });
+		db.update(libraryItems)
+			.set({
+				lastExecutionSummaryJson: summaryJson,
+				updatedAt
+			})
+			.where(
+				and(eq(libraryItems.id, itemId), inArray(libraryItems.status, ['identified', 'organized']))
+			)
+			.run();
 		return;
 	}
 	const compliant = summary.succeededTargets.filter((target) =>
 		isCompliantVideo(mediaType, target)
 	).length;
-	db.prepare(
-		`update library_items set status = 'organized',
-		 video_file_count = @videos,
-		 compliant_file_count = @compliant,
-		 non_compliant_file_count = @nonCompliant,
-		 unknown_file_count = 0,
-		 last_execution_summary_json = @summary,
-		 updated_at = @updatedAt
-		 where id = @id and status in ('identified', 'organized')`
-	).run({
-		id: itemId,
-		videos: summary.succeededTargets.length,
-		compliant,
-		nonCompliant: summary.succeededTargets.length - compliant,
-		summary: summaryJson,
-		updatedAt
-	});
+	db.update(libraryItems)
+		.set({
+			status: 'organized',
+			videoFileCount: summary.succeededTargets.length,
+			compliantFileCount: compliant,
+			nonCompliantFileCount: summary.succeededTargets.length - compliant,
+			unknownFileCount: 0,
+			lastExecutionSummaryJson: summaryJson,
+			updatedAt
+		})
+		.where(
+			and(eq(libraryItems.id, itemId), inArray(libraryItems.status, ['identified', 'organized']))
+		)
+		.run();
 }
 
 function intermediateMovePath(from: string, to: string) {

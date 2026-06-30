@@ -1,4 +1,6 @@
-import { getSqlite } from '$lib/server/db';
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
+import { getDb } from '$lib/server/db';
+import { libraryItems, renamePlanItems, renamePlans } from '$lib/server/db/schema';
 import { newId } from '$lib/server/id';
 import { nowIso } from '$lib/server/time';
 import { getClientForSource, getLibrary } from './sources';
@@ -11,6 +13,8 @@ import { createPlanForItem } from './planner';
 import { enqueueTask } from './tasks';
 import { ApiError } from '$lib/server/api';
 
+type LibraryItem = typeof libraryItems.$inferSelect;
+
 export async function scanLibraryPath(libraryPathId: string) {
 	const library = getLibrary(libraryPathId);
 	const client = getClientForSource(library.sourceId);
@@ -20,34 +24,41 @@ export async function scanLibraryPath(libraryPathId: string) {
 		(entry) => entry.type === 'directory' || isVideoPath(entry.basename)
 	);
 	const seen = new Set(topEntries.map((entry) => entry.basename));
-	const db = getSqlite();
+	const db = getDb();
 	const now = nowIso();
 
 	for (const entry of topEntries) {
 		const existing = db
-			.prepare('select * from library_items where library_path_id = ? and top_level_path = ?')
-			.get(library.id, entry.basename) as Record<string, unknown> | undefined;
-		const id = existing ? String(existing.id) : newId();
+			.select()
+			.from(libraryItems)
+			.where(
+				and(
+					eq(libraryItems.libraryPathId, library.id),
+					eq(libraryItems.topLevelPath, entry.basename)
+				)
+			)
+			.get();
+		const id = existing ? existing.id : newId();
 		if (!existing) {
-			db.prepare(
-				`insert into library_items
-				 (id, library_path_id, kind, top_level_path, status, video_file_count, compliant_file_count,
-				  non_compliant_file_count, unknown_file_count, created_at, updated_at)
-				 values (@id, @libraryPathId, @kind, @topLevelPath, 'unidentified', 0, 0, 0, 0, @now, @now)`
-			).run({
-				id,
-				libraryPathId: library.id,
-				kind: entry.type === 'directory' ? 'folder' : 'file',
-				topLevelPath: entry.basename,
-				now
-			});
+			db.insert(libraryItems)
+				.values({
+					id,
+					libraryPathId: library.id,
+					kind: entry.type === 'directory' ? 'folder' : 'file',
+					topLevelPath: entry.basename,
+					status: 'unidentified',
+					videoFileCount: 0,
+					compliantFileCount: 0,
+					nonCompliantFileCount: 0,
+					unknownFileCount: 0,
+					createdAt: now,
+					updatedAt: now
+				})
+				.run();
 		}
 		inheritIdentityFromRenameTarget(id);
-		const item = db.prepare('select * from library_items where id = ?').get(id) as Record<
-			string,
-			unknown
-		>;
-		const status = normalizeLegacyItemStatus(item);
+		const item = getLibraryItem(id);
+		const status = item.status;
 		if (status === 'pending_review') continue;
 		if (status === 'identified') continue;
 		if (status === 'organized') {
@@ -69,11 +80,8 @@ export async function scanLibraryPath(libraryPathId: string) {
 					error: String(error)
 				});
 			}
-			const refreshed = db.prepare('select * from library_items where id = ?').get(id) as Record<
-				string,
-				unknown
-			>;
-			if (library.autoOrganize && String(refreshed.status) === 'identified') {
+			const refreshed = getLibraryItem(id);
+			if (library.autoOrganize && refreshed.status === 'identified') {
 				const plan = await createPlanForItem(id, 'auto');
 				enqueueTask('execute_rename_plan', { planId: plan.id });
 			}
@@ -81,73 +89,62 @@ export async function scanLibraryPath(libraryPathId: string) {
 	}
 
 	const existingRows = db
-		.prepare('select id, top_level_path from library_items where library_path_id = ?')
-		.all(library.id) as { id: string; top_level_path: string }[];
+		.select({ id: libraryItems.id, topLevelPath: libraryItems.topLevelPath })
+		.from(libraryItems)
+		.where(eq(libraryItems.libraryPathId, library.id))
+		.all();
 	for (const row of existingRows) {
-		if (!seen.has(row.top_level_path)) {
-			db.prepare('delete from library_items where id = ?').run(row.id);
+		if (!seen.has(row.topLevelPath)) {
+			db.delete(libraryItems).where(eq(libraryItems.id, row.id)).run();
 		}
 	}
 	log('info', 'LibraryScanner', 'Library path scan completed', { libraryPathId, count: seen.size });
 }
 
 function inheritIdentityFromRenameTarget(itemId: string) {
-	const db = getSqlite();
-	const item = db.prepare('select * from library_items where id = ?').get(itemId) as
-		Record<string, unknown> | undefined;
-	if (!item || item.source_media_id) return;
+	const db = getDb();
+	const item = db.select().from(libraryItems).where(eq(libraryItems.id, itemId)).get();
+	if (!item || item.sourceMediaId) return;
 	const source = db
-		.prepare(
-			`select src.*
-			 from rename_plan_items rpi
-			 join rename_plans rp on rp.id = rpi.plan_id
-			 join library_items src on src.id = rpi.library_item_id
-			 where rp.library_path_id = @libraryPathId
-			   and rp.status = 'executed'
-			   and rpi.target_top_level_path = @topLevelPath
-			   and src.source_media_id is not null
-			 order by rp.created_at desc
-			 limit 1`
+		.select({ source: libraryItems })
+		.from(renamePlanItems)
+		.innerJoin(renamePlans, eq(renamePlans.id, renamePlanItems.planId))
+		.innerJoin(libraryItems, eq(libraryItems.id, renamePlanItems.libraryItemId))
+		.where(
+			and(
+				eq(renamePlans.libraryPathId, item.libraryPathId),
+				eq(renamePlans.status, 'executed'),
+				eq(renamePlanItems.targetTopLevelPath, item.topLevelPath),
+				isNotNull(libraryItems.sourceMediaId)
+			)
 		)
-		.get({
-			libraryPathId: String(item.library_path_id),
-			topLevelPath: String(item.top_level_path)
-		}) as Record<string, unknown> | undefined;
+		.orderBy(desc(renamePlans.createdAt))
+		.limit(1)
+		.get()?.source;
 	if (!source) return;
-	db.prepare(
-		`update library_items set status = 'organized', source = @source,
-		 source_media_type = @sourceMediaType, source_media_id = @sourceMediaId,
-		 title = @title, original_title = @originalTitle, year = @year,
-		 poster_path = @posterPath, confidence = @confidence,
-		 review_reason = null, recognition_candidates_json = @candidates,
-		 updated_at = @now where id = @id`
-	).run({
-		id: itemId,
-		source: source.source ? String(source.source) : 'tmdb',
-		sourceMediaType: source.source_media_type ? String(source.source_media_type) : null,
-		sourceMediaId: String(source.source_media_id),
-		title: source.title ? String(source.title) : null,
-		originalTitle: source.original_title
-			? String(source.original_title)
-			: source.title
-				? String(source.title)
-				: null,
-		year: source.year ? Number(source.year) : null,
-		posterPath: source.poster_path ? String(source.poster_path) : null,
-		confidence: source.confidence ? String(source.confidence) : 'manual',
-		candidates: source.recognition_candidates_json
-			? String(source.recognition_candidates_json)
-			: '[]',
-		now: nowIso()
-	});
+	db.update(libraryItems)
+		.set({
+			status: 'organized',
+			source: source.source ?? 'tmdb',
+			sourceMediaType: source.sourceMediaType,
+			sourceMediaId: source.sourceMediaId,
+			title: source.title,
+			originalTitle: source.originalTitle ?? source.title,
+			year: source.year,
+			posterPath: source.posterPath,
+			confidence: source.confidence ?? 'manual',
+			reviewReason: null,
+			recognitionCandidatesJson: source.recognitionCandidatesJson ?? '[]',
+			updatedAt: nowIso()
+		})
+		.where(eq(libraryItems.id, itemId))
+		.run();
 }
 
 export async function scanLibraryItem(itemId: string) {
-	const db = getSqlite();
-	const item = db.prepare('select * from library_items where id = ?').get(itemId) as
-		Record<string, unknown> | undefined;
+	const item = getDb().select().from(libraryItems).where(eq(libraryItems.id, itemId)).get();
 	if (!item) throw new ApiError('item.not_found', 'Library item not found', 404);
-	const status = normalizeLegacyItemStatus(item);
+	const status = item.status;
 	if (status !== 'organized' && status !== 'unidentified') {
 		throw new ApiError(
 			'item.scan_not_allowed',
@@ -180,46 +177,39 @@ export async function scanLibraryItem(itemId: string) {
 }
 
 export async function refreshItemStats(itemId: string) {
-	const db = getSqlite();
-	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<
-		string,
-		unknown
-	>;
-	const library = getLibrary(String(item.library_path_id));
+	const db = getDb();
+	const item = getLibraryItem(itemId);
+	const library = getLibrary(item.libraryPathId);
 	const client = getClientForSource(library.sourceId);
-	const itemRoot = joinRemote(library.path, String(item.top_level_path));
+	const itemRoot = joinRemote(library.path, item.topLevelPath);
 	const videos =
-		String(item.kind) === 'file'
+		item.kind === 'file'
 			? [itemRoot]
 			: await collectVideos(client, itemRoot, library.mediaType === 'movie' ? 1 : 2);
 	const now = nowIso();
 	const compliant = videos.filter((video) => isCompliantVideo(library.mediaType, video)).length;
-	db.prepare(
-		`update library_items set video_file_count = @videos, unknown_file_count = 0,
-		 compliant_file_count = @compliant,
-		 non_compliant_file_count = @nonCompliant,
-		 last_scanned_at = @now, updated_at = @now where id = @id`
-	).run({
-		id: itemId,
-		videos: videos.length,
-		compliant,
-		nonCompliant: videos.length - compliant,
-		now
-	});
+	db.update(libraryItems)
+		.set({
+			videoFileCount: videos.length,
+			unknownFileCount: 0,
+			compliantFileCount: compliant,
+			nonCompliantFileCount: videos.length - compliant,
+			lastScannedAt: now,
+			updatedAt: now
+		})
+		.where(eq(libraryItems.id, itemId))
+		.run();
 	return videos;
 }
 
 export async function recognizeItem(itemId: string) {
-	const db = getSqlite();
-	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<
-		string,
-		unknown
-	>;
-	const library = getLibrary(String(item.library_path_id));
+	const db = getDb();
+	const item = getLibraryItem(itemId);
+	const library = getLibrary(item.libraryPathId);
 	const parsed =
 		library.mediaType === 'movie'
-			? parseMovieName(String(item.top_level_path))
-			: parseTvName(String(item.top_level_path));
+			? parseMovieName(item.topLevelPath)
+			: parseTvName(item.topLevelPath);
 	if (!parsed.title) {
 		markPending(itemId, 'parse_failed', []);
 		return;
@@ -238,23 +228,23 @@ export async function recognizeItem(itemId: string) {
 		(!parsed.year || !best.year || parsed.year === best.year) &&
 		exact.length <= 1
 	) {
-		db.prepare(
-			`update library_items set status = 'identified', source = 'tmdb',
-			 source_media_type = @mediaType, source_media_id = @sourceMediaId,
-			 title = @title, original_title = @originalTitle, year = @year,
-			 poster_path = @posterPath, confidence = 'high', review_reason = null,
-			 recognition_candidates_json = @candidates, updated_at = @now where id = @id`
-		).run({
-			id: itemId,
-			mediaType: library.mediaType,
-			sourceMediaId: String(best.id),
-			title: best.title,
-			originalTitle: best.originalTitle,
-			year: best.year,
-			posterPath: best.posterPath,
-			candidates: JSON.stringify(candidates),
-			now: nowIso()
-		});
+		db.update(libraryItems)
+			.set({
+				status: 'identified',
+				source: 'tmdb',
+				sourceMediaType: library.mediaType,
+				sourceMediaId: String(best.id),
+				title: best.title,
+				originalTitle: best.originalTitle,
+				year: best.year,
+				posterPath: best.posterPath,
+				confidence: 'high',
+				reviewReason: null,
+				recognitionCandidatesJson: JSON.stringify(candidates),
+				updatedAt: nowIso()
+			})
+			.where(eq(libraryItems.id, itemId))
+			.run();
 		return;
 	}
 	markPending(itemId, candidates.length ? 'fuzzy' : 'no_match', candidates);
@@ -278,24 +268,20 @@ async function collectVideos(
 }
 
 function markPending(itemId: string, reason: string, candidates: unknown[]) {
-	getSqlite()
-		.prepare(
-			`update library_items set status = 'pending_review', review_reason = @reason,
-			 recognition_candidates_json = @candidates, updated_at = @now where id = @id`
-		)
-		.run({ id: itemId, reason, candidates: JSON.stringify(candidates), now: nowIso() });
+	getDb()
+		.update(libraryItems)
+		.set({
+			status: 'pending_review',
+			reviewReason: reason,
+			recognitionCandidatesJson: JSON.stringify(candidates),
+			updatedAt: nowIso()
+		})
+		.where(eq(libraryItems.id, itemId))
+		.run();
 }
 
-function normalizeLegacyItemStatus(item: Record<string, unknown>) {
-	if (String(item.status) !== 'failed') return String(item.status);
-	const status = item.source_media_id ? 'identified' : 'pending_review';
-	getSqlite()
-		.prepare(
-			`update library_items set status = @status,
-			 review_reason = case when @status = 'pending_review' then coalesce(review_reason, 'legacy_failed') else review_reason end,
-			 recognition_candidates_json = coalesce(recognition_candidates_json, '[]'),
-			 updated_at = @now where id = @id`
-		)
-		.run({ id: String(item.id), status, now: nowIso() });
-	return status;
+function getLibraryItem(itemId: string): LibraryItem {
+	const item = getDb().select().from(libraryItems).where(eq(libraryItems.id, itemId)).get();
+	if (!item) throw new ApiError('item.not_found', 'Library item not found', 404);
+	return item;
 }

@@ -9,8 +9,9 @@ async function freshDb() {
 	vi.resetModules();
 	process.env.RENARR_DATA_DIR = mkdtempSync(join(tmpdir(), 'renarr-route-test-'));
 	process.env.RENARR_SECRET_KEY = secret;
-	const { getSqlite } = await import('$lib/server/db');
-	return getSqlite();
+	const { closeTestDb, pushCurrentSchemaForTest } = await import('$lib/server/test-db');
+	pushCurrentSchemaForTest();
+	return { close: closeTestDb };
 }
 
 function jsonEvent(

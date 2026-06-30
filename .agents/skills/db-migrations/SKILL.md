@@ -1,6 +1,6 @@
 ---
 name: db-migrations
-description: Use for Renarr database changes SQLite schema/table/column/index changes, Drizzle schema updates, better-sqlite3 boot migrations, future drizzle-kit migration setup, Drizzle v1 migration folder upgrades, rebase conflicts, and migration SQL review.
+description: Use for Renarr database changes SQLite schema/table/column/index changes, Drizzle schema updates, drizzle-kit push/generate/migrate workflow, Drizzle v1 migration folder upgrades, rebase conflicts, and migration SQL review.
 ---
 
 # Renarr Database Migrations
@@ -10,9 +10,12 @@ description: Use for Renarr database changes SQLite schema/table/column/index ch
 - Database: SQLite through `better-sqlite3`.
 - Drizzle packages: verify `package.json`; this project currently uses Drizzle v1 RC packages, so check official docs before applying version-sensitive APIs.
 - Drizzle schema: `src/lib/server/db/schema.ts`.
-- Runtime DB setup and current migrations: `src/lib/server/db/index.ts`.
-- Current state: no `drizzle.config.ts` and no generated migration folder. The app creates/patches schema in `migrate(db)` with `db.exec(...)`.
+- Drizzle config: root `drizzle.config.ts`.
+- Runtime DB setup: `src/lib/server/db/index.ts` opens `better-sqlite3`, sets pragmas, and returns a Drizzle client through `getDb()`. It does not run hand-written schema migrations.
+- Beta state: no committed migration history is required. Use `db:push` to sync the current schema to a local SQLite database.
+- Formal release path: use `db:generate` and `db:migrate`; generated root `drizzle/` migration artifacts must be committed.
 - Official Drizzle v1 SQLite references:
+  - `https://orm.drizzle.team/docs/sqlite/migrations`
   - `https://orm.drizzle.team/docs/sqlite/upgrade-v1`
   - `https://orm.drizzle.team/docs/sqlite/v0-v1-changes`
 
@@ -21,80 +24,72 @@ description: Use for Renarr database changes SQLite schema/table/column/index ch
 For every schema change, keep the type loop closed:
 
 1. Update `src/lib/server/db/schema.ts`.
-2. Update `migrate(db)` in `src/lib/server/db/index.ts` with SQLite-compatible SQL.
-3. Update domain schemas/types in `src/lib/schemas/domain.ts` when API/UI payloads change.
-4. Update service and API code that reads or writes the changed table.
-5. Add or update focused regression tests, usually near `src/lib/server/services/v1-core-flows.test.ts` or route-boundary tests.
-6. Run the project verification commands from `AGENTS.md` when feasible.
+2. During beta, run `pnpm run db:push` against the target local SQLite database.
+3. For a formal release migration, run `pnpm run db:generate` and commit the generated `drizzle/` artifacts, then use `pnpm run db:migrate` to apply committed migrations.
+4. Update domain schemas/types in `src/lib/schemas/domain.ts` when API/UI payloads change.
+5. Update service and API code that reads or writes the changed table.
+6. Add or update focused regression tests, usually near `src/lib/server/services/v1-core-flows.test.ts` or route-boundary tests.
+7. Run the project verification commands from `AGENTS.md` when feasible.
 
-Prefer one coherent migration block per feature. Avoid unrelated schema cleanup in the same change.
+During beta, if a generated `drizzle/` folder exists only as draft migration history, delete it before regenerating a new formal-release baseline. Do not accumulate meaningless beta migration churn.
 
-## Current better-sqlite3 Migration Style
+## Beta Push Workflow
 
-Use `create table if not exists` for baseline tables. For existing databases, add explicit patch statements after the baseline DDL.
+Beta development does not promise lossless SQLite upgrades. If a local development database is incompatible with the current schema, rebuild it and run:
 
-SQLite lacks many PostgreSQL idempotent clauses. Do not blindly copy Postgres patterns such as `ADD COLUMN IF NOT EXISTS`. For SQLite, guard additive changes by checking `pragma_table_info` in TypeScript before running `alter table`.
-
-```ts
-const columns = db
-  .prepare("select name from pragma_table_info('library_items')")
-  .all() as { name: string }[];
-
-if (!columns.some((column) => column.name === 'new_column')) {
-  db.exec("alter table library_items add column new_column text");
-}
+```sh
+pnpm run db:push
 ```
 
-For indexes, use SQLite's `create index if not exists` / `create unique index if not exists`.
+Use a temporary data directory when validating schema sync:
 
-For destructive or shape-changing migrations, prefer the SQLite table-rebuild pattern:
+```sh
+RENARR_DATA_DIR=/private/tmp/renarr-db-push-test pnpm run db:push --force
+```
 
-1. Create a new table with the desired shape.
-2. Copy and transform data explicitly.
-3. Drop the old table.
-4. Rename the new table.
-5. Recreate indexes.
-
-Wrap multi-step data changes in a transaction when partial application would corrupt state. `better-sqlite3` supports `db.transaction(...)`; use it for procedural migrations and keep `db.exec(...)` for simple static DDL.
+Do not add hand-written `migrate(db)` DDL back into `src/lib/server/db/index.ts`.
 
 ## SQLite Review Rules
 
 - Use text IDs unless a table has a concrete reason to use another primary key shape.
 - Store booleans as `integer(..., { mode: 'boolean' })` in Drizzle schema and `integer not null default 0/1` in SQL.
 - Store timestamps as text ISO strings unless existing table semantics dictate otherwise.
-- Keep CHECK constraints aligned with TypeScript value unions and Zod schemas.
-- Add foreign keys in SQL when the relationship must be enforced; ensure SQLite foreign key behavior is actually enabled before depending on cascades.
-- Keep unique constraints/indexes in both Drizzle schema and SQL DDL.
-- Preserve product migration decisions from `AGENTS.md`, especially legacy `failed` item compatibility.
+- Keep TypeScript/Zod value unions aligned with Drizzle column choices.
+- Add foreign keys in Drizzle schema when the app depends on database enforcement; ensure SQLite foreign key behavior is enabled before depending on cascades.
+- Keep unique constraints/indexes in Drizzle schema.
+- Preserve product migration decisions from `AGENTS.md`: beta can rebuild incompatible DBs, no old `failed` item compatibility migration is required, and formal release requires a compatibility review.
 
 ## Development Churn
 
-Before a schema change has shipped to users or the default branch, rewrite the in-progress migration code to the final shape instead of layering compatibility for every draft iteration.
+Before a schema change ships as formal migration history, rewrite the in-progress schema to the final shape and rerun `db:push`.
 
-After a migration has shipped or reached the default branch, treat it as production history:
+After a generated migration has shipped as formal release history, treat it as production history:
 
 - Do not remove or silently reinterpret existing compatibility SQL.
-- Add a follow-up guarded migration.
+- Add a follow-up generated migration.
 - Preserve data migration behavior for older databases.
 
-## Future drizzle-kit Adoption
+## Formal drizzle-kit Migration Workflow
 
-If this project adopts generated Drizzle migrations later, do that as a separate infrastructure change:
+Before creating a formal release tag:
 
-1. Add `drizzle.config.ts` for SQLite and point it at `src/lib/server/db/schema.ts`.
-2. Decide the migration output directory before generating anything.
-3. Use the installed Drizzle v1 RC-compatible CLI, e.g. `pnpm exec drizzle-kit generate`.
-4. Wire runtime migration execution for `better-sqlite3`.
-5. Keep or replace the existing `migrate(db)` path intentionally; do not run two independent migration systems against the same database.
+1. Update docs that say Renarr is beta.
+2. Reconfirm DB/API compatibility policy.
+3. Delete any draft beta `drizzle/` artifacts.
+4. Run `pnpm run db:generate`.
+5. Commit generated SQL/snapshots/metadata under root `drizzle/`.
+6. Use `pnpm run db:migrate` to apply committed migrations.
 
 For an existing Drizzle v0 migration folder, run `drizzle-kit up` once to convert it to the v1/v3 folder structure. Drizzle v1 removes `journal.json`, groups SQL and snapshots into migration folders, removes `drizzle-kit drop`, and matches applied migrations by full folder name instead of timestamp. This does not apply to Renarr until a generated migration folder exists.
 
+Future formal compatibility tests may use raw SQL in test helpers to construct old schema shapes. Keep that exception out of production services.
+
 ## Rebase Conflicts
 
-For current hand-written migrations, rebase conflicts are ordinary code conflicts in `src/lib/server/db/index.ts` and `schema.ts`:
+For beta schema work, rebase conflicts are ordinary code conflicts in `schema.ts`, services, and tests:
 
-- Keep upstream shipped migration behavior.
+- Keep upstream schema decisions.
 - Reapply this branch's schema change after the upstream code.
-- Verify an empty/new database and an older seeded database still migrate correctly.
+- Verify an empty/new database with `db:push`.
 
-For future generated Drizzle migrations, keep upstream/default-branch migrations, remove this branch's generated draft migrations, finish the rebase, then regenerate this branch's migration from the rebased schema.
+For formal generated Drizzle migrations, keep upstream/default-branch migrations, remove this branch's generated draft migrations, finish the rebase, then regenerate this branch's migration from the rebased schema.

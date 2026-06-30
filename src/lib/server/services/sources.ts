@@ -1,4 +1,6 @@
-import { getSqlite } from '$lib/server/db';
+import { asc, eq } from 'drizzle-orm';
+import { getDb } from '$lib/server/db';
+import { libraryPaths, webdavSources } from '$lib/server/db/schema';
 import { newId } from '$lib/server/id';
 import { decryptCredential, encryptCredential } from '$lib/server/security/credentials';
 import { nowIso } from '$lib/server/time';
@@ -17,23 +19,17 @@ type SourceRow = {
 	name: string;
 	url: string;
 	username: string;
-	credential_encrypted: string;
-	created_at: string;
-	updated_at: string;
+	credentialEncrypted: string;
+	createdAt: string;
+	updatedAt: string;
 };
 
 export function listSources() {
-	return getSqlite()
-		.prepare(
-			'select id, name, url, username, created_at, updated_at from webdav_sources order by name'
-		)
-		.all()
-		.map((row) => mapSource(row as SourceRow));
+	return getDb().select().from(webdavSources).orderBy(asc(webdavSources.name)).all().map(mapSource);
 }
 
 export function getSource(id: string) {
-	const row = getSqlite().prepare('select * from webdav_sources where id = ?').get(id) as
-		SourceRow | undefined;
+	const row = getDb().select().from(webdavSources).where(eq(webdavSources.id, id)).get();
 	if (!row) throw new Error('Source not found');
 	return row;
 }
@@ -43,49 +39,56 @@ export function getClientForSource(sourceId: string) {
 	return new WebDavFileClient(
 		source.url,
 		source.username,
-		decryptCredential(source.credential_encrypted)
+		decryptCredential(source.credentialEncrypted)
 	);
 }
 
 export function upsertSource(input: unknown, id?: string) {
 	const parsed = webdavSourceInputSchema.parse(input);
-	const db = getSqlite();
+	const db = getDb();
 	const existing = id
-		? (db.prepare('select * from webdav_sources where id = ?').get(id) as SourceRow)
+		? db.select().from(webdavSources).where(eq(webdavSources.id, id)).get()
 		: undefined;
 	if (id && !existing) throw new Error('Source not found');
 	if (!parsed.credential && !existing) throw new Error('Credential is required');
 	const now = nowIso();
 	const sourceId = id || newId();
-	db.prepare(
-		`insert into webdav_sources (id, name, url, username, credential_encrypted, created_at, updated_at)
-		 values (@id, @name, @url, @username, @credentialEncrypted, @createdAt, @updatedAt)
-		 on conflict(id) do update set
-		 name = excluded.name, url = excluded.url, username = excluded.username,
-		 credential_encrypted = excluded.credential_encrypted, updated_at = excluded.updated_at`
-	).run({
+	const values = {
 		id: sourceId,
 		name: parsed.name,
 		url: parsed.url,
 		username: parsed.username,
 		credentialEncrypted: parsed.credential
 			? encryptCredential(parsed.credential)
-			: existing?.credential_encrypted,
-		createdAt: existing?.created_at || now,
+			: existing?.credentialEncrypted || '',
+		createdAt: existing?.createdAt || now,
 		updatedAt: now
-	});
-	return mapSource(
-		db.prepare('select * from webdav_sources where id = ?').get(sourceId) as SourceRow
-	);
+	};
+	db.insert(webdavSources)
+		.values(values)
+		.onConflictDoUpdate({
+			target: webdavSources.id,
+			set: {
+				name: values.name,
+				url: values.url,
+				username: values.username,
+				credentialEncrypted: values.credentialEncrypted,
+				updatedAt: values.updatedAt
+			}
+		})
+		.run();
+	const row = db.select().from(webdavSources).where(eq(webdavSources.id, sourceId)).get();
+	if (!row) throw new Error('Source not found');
+	return mapSource(row);
 }
 
 export async function testWebdavConnection(input: unknown, id?: string) {
 	const parsed = webdavSourceInputSchema.parse(input);
 	const existing = id
-		? (getSqlite().prepare('select * from webdav_sources where id = ?').get(id) as SourceRow)
+		? getDb().select().from(webdavSources).where(eq(webdavSources.id, id)).get()
 		: undefined;
 	const credential =
-		parsed.credential || (existing ? decryptCredential(existing.credential_encrypted) : '');
+		parsed.credential || (existing ? decryptCredential(existing.credentialEncrypted) : '');
 	if (!credential) throw new ApiError('validation_failed', 'Credential is required', 400);
 	const client = new WebDavFileClient(parsed.url, parsed.username, credential);
 	try {
@@ -127,47 +130,60 @@ export async function browseWebdav(sourceId: string, path: string) {
 }
 
 export function listLibraries() {
-	return (
-		getSqlite()
-			.prepare(
-				`select lp.*, s.name as source_name
-			 from library_paths lp join webdav_sources s on s.id = lp.source_id
-			 order by s.name, lp.path`
-			)
-			.all() as Record<string, unknown>[]
-	).map(mapLibrary);
+	return getDb()
+		.select({
+			id: libraryPaths.id,
+			sourceId: libraryPaths.sourceId,
+			sourceName: webdavSources.name,
+			path: libraryPaths.path,
+			mediaType: libraryPaths.mediaType,
+			autoOrganize: libraryPaths.autoOrganize,
+			createdAt: libraryPaths.createdAt,
+			updatedAt: libraryPaths.updatedAt
+		})
+		.from(libraryPaths)
+		.innerJoin(webdavSources, eq(webdavSources.id, libraryPaths.sourceId))
+		.orderBy(asc(webdavSources.name), asc(libraryPaths.path))
+		.all()
+		.map(mapLibrary);
 }
 
 export function getLibrary(id: string) {
-	const row = getSqlite()
-		.prepare(
-			`select lp.*, s.name as source_name
-			 from library_paths lp join webdav_sources s on s.id = lp.source_id
-			 where lp.id = ?`
-		)
-		.get(id);
+	const row = getDb()
+		.select({
+			id: libraryPaths.id,
+			sourceId: libraryPaths.sourceId,
+			sourceName: webdavSources.name,
+			path: libraryPaths.path,
+			mediaType: libraryPaths.mediaType,
+			autoOrganize: libraryPaths.autoOrganize,
+			createdAt: libraryPaths.createdAt,
+			updatedAt: libraryPaths.updatedAt
+		})
+		.from(libraryPaths)
+		.innerJoin(webdavSources, eq(webdavSources.id, libraryPaths.sourceId))
+		.where(eq(libraryPaths.id, id))
+		.get();
 	if (!row) throw new Error('Library path not found');
-	return mapLibrary(row as Record<string, unknown>);
+	return mapLibrary(row);
 }
 
 export function createLibrary(input: unknown) {
 	const parsed = libraryPathInputSchema.parse(input);
 	const id = newId();
 	const now = nowIso();
-	getSqlite()
-		.prepare(
-			`insert into library_paths (id, source_id, path, media_type, auto_organize, created_at, updated_at)
-			 values (@id, @sourceId, @path, @mediaType, @autoOrganize, @createdAt, @updatedAt)`
-		)
-		.run({
+	getDb()
+		.insert(libraryPaths)
+		.values({
 			id,
 			sourceId: parsed.sourceId,
 			path: normalizeRemotePath(parsed.path),
 			mediaType: parsed.mediaType,
-			autoOrganize: parsed.autoOrganize ? 1 : 0,
+			autoOrganize: parsed.autoOrganize,
 			createdAt: now,
 			updatedAt: now
-		});
+		})
+		.run();
 	return getLibrary(id);
 }
 
@@ -175,17 +191,11 @@ export function updateLibrary(id: string, input: unknown) {
 	const parsed = libraryPathUpdateSchema.parse(input);
 	const existing = getLibrary(id);
 	const now = nowIso();
-	getSqlite()
-		.prepare(
-			`update library_paths
-			 set auto_organize = @autoOrganize, updated_at = @updatedAt
-			 where id = @id`
-		)
-		.run({
-			id: existing.id,
-			autoOrganize: (parsed.autoOrganize ?? existing.autoOrganize) ? 1 : 0,
-			updatedAt: now
-		});
+	getDb()
+		.update(libraryPaths)
+		.set({ autoOrganize: parsed.autoOrganize ?? existing.autoOrganize, updatedAt: now })
+		.where(eq(libraryPaths.id, existing.id))
+		.run();
 	return getLibrary(id);
 }
 
@@ -195,20 +205,29 @@ function mapSource(row: SourceRow) {
 		name: row.name,
 		url: row.url,
 		username: row.username,
-		createdAt: row.created_at,
-		updatedAt: row.updated_at
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt
 	};
 }
 
-function mapLibrary(row: Record<string, unknown>) {
+function mapLibrary(row: {
+	id: string;
+	sourceId: string;
+	sourceName: string;
+	path: string;
+	mediaType: 'movie' | 'tv';
+	autoOrganize: boolean;
+	createdAt: string;
+	updatedAt: string;
+}) {
 	return {
-		id: String(row.id),
-		sourceId: String(row.source_id),
-		sourceName: String(row.source_name),
-		path: String(row.path),
-		mediaType: row.media_type as 'movie' | 'tv',
-		autoOrganize: Boolean(row.auto_organize),
-		createdAt: String(row.created_at),
-		updatedAt: String(row.updated_at)
+		id: row.id,
+		sourceId: row.sourceId,
+		sourceName: row.sourceName,
+		path: row.path,
+		mediaType: row.mediaType,
+		autoOrganize: row.autoOrganize,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt
 	};
 }

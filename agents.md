@@ -19,11 +19,14 @@ Renarr 是深色管理台风格应用
 
 - 当前项目标记为开发中的 beta 版本；在正式发布版本前，不要求数据库或 API 无损升级/向后兼容，必要时可以直接重建本地 SQLite 数据库。
 - 如果用户准备发布正式版本，例如创建正式 release tag，必须提醒用户先修改 beta 状态说明，并重新确认数据库/API 兼容策略。
-- DB 访问目标是业务服务层统一使用 Drizzle API；`getSqlite()`/raw better-sqlite3 handle 不作为生产服务层公共 API 暴露，只允许 Drizzle migrator 和少量测试辅助工具使用。
+- DB 访问目标是业务服务层统一使用 Drizzle API；`getSqlite()`/raw better-sqlite3 handle 不作为生产服务层公共 API 暴露，只允许必要 DB 初始化、正式版迁移工具和少量测试辅助工具使用。
 - Drizzle schema 是数据库结构的唯一真实来源；所有 SQLite 表、索引和约束都必须在 `src/lib/server/db/schema.ts` 表达，并由 drizzle-kit 迁移生成/维护。
-- drizzle-kit 配置使用仓库根目录 `drizzle.config.ts`，迁移输出使用根目录 `drizzle/`，不放入 `src` 或 `docs`。
+- DB 迁移策略按阶段区分：beta 阶段直接使用 `drizzle-kit push` 同步本地 SQLite schema；正式版再使用 `drizzle-kit generate`/`migrate` 和已提交 migration artifacts。
+- drizzle-kit 配置使用仓库根目录 `drizzle.config.ts`；正式版 migration 输出使用根目录 `drizzle/`，不放入 `src` 或 `docs`。
+- `package.json` 必须提供 `db:push`、`db:generate` 和 `db:migrate` 命令；beta 阶段以 `db:push` 为主，正式版 `db:generate` 生成的 `drizzle/` migration artifacts 必须纳入 git 管理。
+- 正式发布版本前如果临时生成过 migration，每次重新生成前先删除旧的 `drizzle/` 迁移文件，再生成当前目标 schema 的新 migration。
 - 切换到 drizzle-kit 迁移后，不迁移 beta 期间废弃的 legacy 数据修正逻辑；旧开发库不兼容时直接重建。
-- DB/迁移改造按两层实施：先完成 schema、drizzle.config、初始 migration、启动 migrator 和 raw handle 边界；再逐个服务把查询改成 Drizzle API，期间不夹带业务规则变更。
+- DB/迁移改造按两层实施：先完成 schema、drizzle.config、beta `db:push`、正式版 `db:generate`/`db:migrate`、移除手写建表迁移和 raw handle 边界；再逐个服务把查询改成 Drizzle API，期间不夹带业务规则变更。
 - DB raw SQL 边界通过 agent 约定和 code review 维护，不新增自动化检查脚本。
 - 当前 beta 阶段不保留旧库构造/迁移边界测试；已有 legacy 迁移测试可删除。未来正式兼容阶段如果需要构造旧 schema 测试，允许在测试辅助代码中使用 raw SQL。
 - 前端如果提供可操作开关，必须有真实后端 API 持久化，不要只改本地状态。
@@ -34,7 +37,7 @@ Renarr 是深色管理台风格应用
 - 统一通过 `execute_rename_plan` 执行自动/手动整理，自动和手动只作为 rename plan 的来源与确认方式区分。
 - 整理成功后必须同步更新 `library_items` 的 `video_file_count`、`compliant_file_count`、`non_compliant_file_count`，不能依赖下一次扫描刷新列表摘要。
 - 不再使用 item status `failed` 表示重命名失败；执行失败只展示在任务、日志、execution records 和 summary 中。
-- 旧 `failed` item 读取或迁移时按是否已有 identity 兼容为 `identified` 或 `pending_review`。
+- beta 阶段不再兼容旧 `failed` item；遇到旧开发库不匹配时重建数据库。
 - `pending_review` 必须先手动指定 TMDB identity；手动指定成功后直接进入 rename plan draft 编辑流程。
 - `identified` item 可手动指定或执行计划；`organized` item 只有存在 non-compliant 文件时显示执行计划，不显示手动指定。
 - item detail 不展示实时文件列表；创建 rename plan draft 时才实时读取 WebDAV 文件。

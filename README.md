@@ -1,12 +1,22 @@
 # Renarr
 
-Renarr 是深色管理台风格的 WebDAV 媒体库整理工具。V1 使用 SvelteKit 全栈单项目、TypeScript、Tailwind CSS、shadcn-svelte、SQLite、Drizzle 风格 schema、Zod、Svelte Query 和 Paraglide JS。
+Renarr 是深色管理台风格的 WebDAV 媒体库整理工具。V1 使用 SvelteKit 全栈单项目、TypeScript、Tailwind CSS、shadcn-svelte、SQLite、Drizzle ORM、Zod、Svelte Query 和 Paraglide JS。
 
 ## 项目状态
 
 Renarr 当前是开发中的 beta 版本。在标记为正式发布版本前，数据库和 API 不承诺无损升级或向后兼容；开发期间 schema/API 变化可以要求重建本地 SQLite 数据库。
 
 准备创建正式 release tag 前，需要先更新这段 beta 描述，并重新确认数据库/API 的兼容策略。
+
+## 数据库
+
+数据库结构以 `src/lib/server/db/schema.ts` 为唯一真实来源。beta 阶段不维护已提交的迁移历史，开发者在 schema 变化后运行：
+
+```sh
+pnpm run db:push
+```
+
+如果开发期旧 SQLite 数据库与当前 schema 不兼容，直接重建数据库后重新运行 `db:push`。正式发布前再切换到 `db:generate`/`db:migrate` 流程；届时生成的根目录 `drizzle/` migration artifacts 需要纳入 git 管理，并重新确认兼容策略。
 
 ## 开发
 
@@ -65,7 +75,7 @@ RENARR_TMDB_BASE_URL=https://your-proxy.example.com/3
 item 状态规则：
 
 - `pending_review` 表示需要用户确认身份，可以有 TMDB 候选，也可以没有候选。
-- 识别失败不再使用 item status `failed`；旧 `failed` item 会兼容为 `identified` 或 `pending_review`。
+- 识别失败不再使用 item status `failed`；beta 阶段不兼容旧 `failed` item，旧开发库不匹配时重建数据库。
 - 重命名执行失败只记录在任务、日志、execution records 和执行摘要中，不修改 item status。
 
 手动指定流程：

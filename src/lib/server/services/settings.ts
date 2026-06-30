@@ -1,12 +1,16 @@
-import { getSqlite } from '$lib/server/db';
+import { eq } from 'drizzle-orm';
+import { getDb } from '$lib/server/db';
+import { appSettings } from '$lib/server/db/schema';
 import { nowIso } from '$lib/server/time';
 import { settingsPatchSchema, settingsSchema, type AppSettings } from '$lib/schemas/domain';
 
 export function getSettings(): AppSettings {
-	const row = getSqlite()
-		.prepare('select value_json from app_settings where id = ?')
-		.get('global') as { value_json: string } | undefined;
-	return settingsSchema.parse(row ? JSON.parse(row.value_json) : {});
+	const row = getDb()
+		.select({ valueJson: appSettings.valueJson })
+		.from(appSettings)
+		.where(eq(appSettings.id, 'global'))
+		.get();
+	return settingsSchema.parse(row ? JSON.parse(row.valueJson) : {});
 }
 
 export function saveSettings(input: unknown) {
@@ -23,13 +27,15 @@ export function saveSettings(input: unknown) {
 		...patch,
 		tmdbApiKey
 	});
-	getSqlite()
-		.prepare(
-			`insert into app_settings (id, value_json, updated_at)
-			 values ('global', @valueJson, @updatedAt)
-			 on conflict(id) do update set value_json = excluded.value_json, updated_at = excluded.updated_at`
-		)
-		.run({ valueJson: JSON.stringify(settings), updatedAt: nowIso() });
+	const updatedAt = nowIso();
+	getDb()
+		.insert(appSettings)
+		.values({ id: 'global', valueJson: JSON.stringify(settings), updatedAt })
+		.onConflictDoUpdate({
+			target: appSettings.id,
+			set: { valueJson: JSON.stringify(settings), updatedAt }
+		})
+		.run();
 	return settings;
 }
 

@@ -1,5 +1,12 @@
 import { ApiError } from '$lib/server/api';
-import { getSqlite } from '$lib/server/db';
+import { eq } from 'drizzle-orm';
+import { getDb } from '$lib/server/db';
+import {
+	libraryItems,
+	renamePlanDrafts,
+	renamePlanItems,
+	renamePlans
+} from '$lib/server/db/schema';
 import { newId } from '$lib/server/id';
 import { nowIso } from '$lib/server/time';
 import type { MediaType } from '$lib/schemas/domain';
@@ -12,6 +19,7 @@ import { enqueueTask } from './tasks';
 import { posterUrl } from './tmdb';
 
 type Mode = 'auto' | 'manual';
+type PlanningItem = typeof libraryItems.$inferSelect;
 
 export type DraftRow = {
 	id: string;
@@ -37,19 +45,18 @@ export type DraftRow = {
 };
 
 export async function createPlanForItem(itemId: string, mode: Mode) {
-	const db = getSqlite();
 	const item = getPlanningItem(itemId);
-	if (!['identified', 'organized'].includes(String(item.status))) {
+	if (!['identified', 'organized'].includes(item.status)) {
 		throw new ApiError(
 			'item.plan_not_allowed',
 			'Item must be identified or organized before planning',
 			400,
 			{
-				status: String(item.status)
+				status: item.status
 			}
 		);
 	}
-	const library = getLibrary(String(item.library_path_id));
+	const library = getLibrary(item.libraryPathId);
 	const sourceFiles = await listVideoFilesForItem(item);
 	const planId = createConfirmedPlan(library.id, mode, 'worker');
 	for (const sourceFilePath of sourceFiles) {
@@ -62,43 +69,42 @@ export async function createPlanForItem(itemId: string, mode: Mode) {
 
 export async function createDraftForItem(itemId: string) {
 	const item = getPlanningItem(itemId);
-	if (!['identified', 'organized'].includes(String(item.status))) {
+	if (!['identified', 'organized'].includes(item.status)) {
 		throw new ApiError(
 			'item.plan_not_allowed',
 			'Item must be identified or organized before planning',
 			400,
 			{
-				status: String(item.status)
+				status: item.status
 			}
 		);
 	}
-	if (!item.source_media_id || !item.title) {
+	if (!item.sourceMediaId || !item.title) {
 		throw new ApiError('item.plan_not_allowed', 'Item must have an identity before planning', 400, {
-			status: String(item.status)
+			status: item.status
 		});
 	}
-	const library = getLibrary(String(item.library_path_id));
+	const library = getLibrary(item.libraryPathId);
 	const sourceFiles = await listVideoFilesForItem(item);
 	const rows = await Promise.all(
 		sourceFiles.map((sourceFilePath) => buildRow(item, library, sourceFilePath, true))
 	);
 	const now = nowIso();
 	const id = newId();
-	getSqlite()
-		.prepare(
-			`insert into rename_plan_drafts
-			 (id, library_path_id, library_item_id, mode, status, rows_json, created_at, updated_at, expires_at)
-			 values (@id, @libraryPathId, @libraryItemId, 'manual', 'draft', @rowsJson, @createdAt, @updatedAt, @expiresAt)`
-		)
-		.run({
+	getDb()
+		.insert(renamePlanDrafts)
+		.values({
 			id,
 			libraryPathId: library.id,
 			libraryItemId: itemId,
+			mode: 'manual',
+			status: 'draft',
 			rowsJson: JSON.stringify(rows),
 			createdAt: now,
 			updatedAt: now,
 			expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-		});
+		})
+		.run();
 	return getDraft(id);
 }
 
@@ -106,9 +112,9 @@ export async function updateDraft(draftId: string, input: unknown) {
 	const draft = getDraftRow(draftId);
 	if (draft.status !== 'draft')
 		throw new ApiError('plan.invalid', 'Plan draft is not editable', 400);
-	const item = getPlanningItem(String(draft.library_item_id));
-	const library = getLibrary(String(draft.library_path_id));
-	const rows = parseRows(draft.rows_json);
+	const item = getPlanningItem(String(draft.libraryItemId));
+	const library = getLibrary(draft.libraryPathId);
+	const rows = parseRows(draft.rowsJson);
 	const updates =
 		input && typeof input === 'object' && Array.isArray((input as { rows?: unknown }).rows)
 			? (input as { rows: Partial<DraftRow>[] }).rows
@@ -138,9 +144,11 @@ export async function updateDraft(draftId: string, input: unknown) {
 			return buildRow(item, library, merged.sourceFilePath, true, merged);
 		})
 	);
-	getSqlite()
-		.prepare('update rename_plan_drafts set rows_json = ?, updated_at = ? where id = ?')
-		.run(JSON.stringify(nextRows), nowIso(), draftId);
+	getDb()
+		.update(renamePlanDrafts)
+		.set({ rowsJson: JSON.stringify(nextRows), updatedAt: nowIso() })
+		.where(eq(renamePlanDrafts.id, draftId))
+		.run();
 	return getDraft(draftId);
 }
 
@@ -148,20 +156,22 @@ export async function submitDraft(draftId: string) {
 	const draft = getDraftRow(draftId);
 	if (draft.status !== 'draft')
 		throw new ApiError('plan.invalid', 'Plan draft has already been submitted', 400);
-	const rows = parseRows(draft.rows_json).filter((row) => row.selected);
+	const rows = parseRows(draft.rowsJson).filter((row) => row.selected);
 	if (rows.length === 0 || rows.some((row) => row.status === 'invalid')) {
 		throw new ApiError('plan.invalid', 'Plan draft contains invalid selected rows', 400);
 	}
 	if (rows.some((row) => row.conflict && row.conflictAction !== 'overwrite')) {
 		throw new ApiError('plan.conflict_unresolved', 'Plan draft contains unresolved conflicts', 400);
 	}
-	const planId = createConfirmedPlan(String(draft.library_path_id), 'manual', 'web');
+	const planId = createConfirmedPlan(draft.libraryPathId, 'manual', 'web');
 	for (const row of rows) {
-		insertPlanItem(planId, String(draft.library_item_id), row);
+		insertPlanItem(planId, String(draft.libraryItemId), row);
 	}
-	getSqlite()
-		.prepare("update rename_plan_drafts set status = 'submitted', updated_at = ? where id = ?")
-		.run(nowIso(), draftId);
+	getDb()
+		.update(renamePlanDrafts)
+		.set({ status: 'submitted', updatedAt: nowIso() })
+		.where(eq(renamePlanDrafts.id, draftId))
+		.run();
 	const task = enqueueTask('execute_rename_plan', { planId });
 	return { plan: getPlan(planId), task };
 }
@@ -169,41 +179,42 @@ export async function submitDraft(draftId: string) {
 export function getDraft(draftId: string) {
 	const draft = getDraftRow(draftId);
 	return {
-		id: String(draft.id),
-		libraryPathId: String(draft.library_path_id),
-		libraryItemId: draft.library_item_id ? String(draft.library_item_id) : null,
-		mode: String(draft.mode),
-		status: String(draft.status),
-		rows: parseRows(draft.rows_json),
-		createdAt: String(draft.created_at),
-		updatedAt: String(draft.updated_at),
-		expiresAt: String(draft.expires_at)
+		id: draft.id,
+		libraryPathId: draft.libraryPathId,
+		libraryItemId: draft.libraryItemId,
+		mode: draft.mode,
+		status: draft.status,
+		rows: parseRows(draft.rowsJson),
+		createdAt: draft.createdAt,
+		updatedAt: draft.updatedAt,
+		expiresAt: draft.expiresAt
 	};
 }
 
 export function getPlan(planId: string) {
-	const plan = getSqlite().prepare('select * from rename_plans where id = ?').get(planId) as
-		Record<string, unknown> | undefined;
+	const plan = getDb().select().from(renamePlans).where(eq(renamePlans.id, planId)).get();
 	if (!plan) throw new ApiError('plan.invalid', 'Plan not found', 404);
-	const items = getSqlite()
-		.prepare('select * from rename_plan_items where plan_id = ?')
-		.all(planId);
+	const items = getDb()
+		.select()
+		.from(renamePlanItems)
+		.where(eq(renamePlanItems.planId, planId))
+		.all();
 	return {
-		id: String(plan.id),
-		libraryPathId: String(plan.library_path_id),
-		mode: String(plan.mode),
-		status: String(plan.status),
+		id: plan.id,
+		libraryPathId: plan.libraryPathId,
+		mode: plan.mode,
+		status: plan.status,
 		items: items.map((row) => ({
-			id: String((row as Record<string, unknown>).id),
-			sourceFilePath: String((row as Record<string, unknown>).source_file_path),
-			targetFilePath: String((row as Record<string, unknown>).target_file_path),
-			status: String((row as Record<string, unknown>).status)
+			id: row.id,
+			sourceFilePath: row.sourceFilePath,
+			targetFilePath: row.targetFilePath,
+			status: row.status
 		}))
 	};
 }
 
 async function buildRow(
-	item: Record<string, unknown>,
+	item: PlanningItem,
 	library: ReturnType<typeof getLibrary>,
 	sourceFilePath: string,
 	checkConflict: boolean,
@@ -264,33 +275,26 @@ async function buildRow(
 function createConfirmedPlan(libraryPathId: string, mode: Mode, createdBy: string) {
 	const id = newId();
 	const now = nowIso();
-	getSqlite()
-		.prepare(
-			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
-			 values (@id, @libraryPathId, @mode, 'confirmed', @templateSnapshotJson, @createdBy, @confirmedAt, @createdAt)`
-		)
-		.run({
+	getDb()
+		.insert(renamePlans)
+		.values({
 			id,
 			libraryPathId,
 			mode,
+			status: 'confirmed',
 			templateSnapshotJson: JSON.stringify(getSettings()),
 			createdBy,
 			confirmedAt: now,
 			createdAt: now
-		});
+		})
+		.run();
 	return id;
 }
 
 function insertPlanItem(planId: string, itemId: string, row: DraftRow) {
-	getSqlite()
-		.prepare(
-			`insert into rename_plan_items
-			 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
-			  media_kind, source_media_id, season, episode, overwrite, sidecars_json, status)
-			 values (@id, @planId, @libraryItemId, @sourceFilePath, @targetFilePath, @targetTopLevelPath,
-			  @mediaKind, @sourceMediaId, @season, @episode, @overwrite, @sidecarsJson, 'pending')`
-		)
-		.run({
+	getDb()
+		.insert(renamePlanItems)
+		.values({
 			id: newId(),
 			planId,
 			libraryItemId: itemId,
@@ -301,34 +305,25 @@ function insertPlanItem(planId: string, itemId: string, row: DraftRow) {
 			sourceMediaId: row.sourceMediaId,
 			season: row.season,
 			episode: row.episode,
-			overwrite: row.overwrite ? 1 : 0,
-			sidecarsJson: JSON.stringify(row.sidecars)
-		});
+			overwrite: row.overwrite,
+			sidecarsJson: JSON.stringify(row.sidecars),
+			status: 'pending'
+		})
+		.run();
 }
 
 function getPlanningItem(itemId: string) {
-	const item = getSqlite().prepare('select * from library_items where id = ?').get(itemId) as
-		Record<string, unknown> | undefined;
+	const item = getDb().select().from(libraryItems).where(eq(libraryItems.id, itemId)).get();
 	if (!item) throw new ApiError('item.not_found', 'Library item not found', 404);
-	if (String(item.status) === 'failed') {
-		const nextStatus = item.source_media_id ? 'identified' : 'pending_review';
-		getSqlite()
-			.prepare(
-				`update library_items set status = @status,
-				 review_reason = case when @status = 'pending_review' then coalesce(review_reason, 'legacy_failed') else review_reason end,
-				 recognition_candidates_json = coalesce(recognition_candidates_json, '[]'),
-				 updated_at = @now where id = @id`
-			)
-			.run({ id: itemId, status: nextStatus, now: nowIso() });
-		return { ...item, status: nextStatus };
-	}
 	return item;
 }
 
 function getDraftRow(draftId: string) {
-	const draft = getSqlite()
-		.prepare('select * from rename_plan_drafts where id = ?')
-		.get(draftId) as Record<string, string> | undefined;
+	const draft = getDb()
+		.select()
+		.from(renamePlanDrafts)
+		.where(eq(renamePlanDrafts.id, draftId))
+		.get();
 	if (!draft) throw new ApiError('plan.invalid', 'Plan draft not found', 404);
 	return draft;
 }
@@ -362,25 +357,22 @@ function nullableString(value: unknown, fallback: string | null): string | null 
 	return trimmed || null;
 }
 
-function mediaInfo(item: Record<string, unknown>, override?: DraftRow) {
-	const posterPath = override?.posterPath ?? (item.poster_path ? String(item.poster_path) : null);
+function mediaInfo(item: PlanningItem, override?: DraftRow) {
+	const posterPath = override?.posterPath ?? item.posterPath;
 	return {
-		sourceMediaId:
-			override?.sourceMediaId ?? (item.source_media_id ? String(item.source_media_id) : null),
+		sourceMediaId: override?.sourceMediaId ?? item.sourceMediaId,
 		title: override?.title || String(item.title),
-		originalTitle:
-			override?.originalTitle ||
-			(item.original_title ? String(item.original_title) : String(item.title)),
-		year: override?.year ?? (item.year ? Number(item.year) : null),
+		originalTitle: override?.originalTitle || item.originalTitle || String(item.title),
+		year: override?.year ?? item.year,
 		posterPath,
 		posterUrl: override?.posterUrl ?? posterUrl(posterPath)
 	};
 }
 
-async function listVideoFilesForItem(item: Record<string, unknown>) {
-	const library = getLibrary(String(item.library_path_id));
-	const itemRoot = joinRemote(library.path, String(item.top_level_path));
-	if (String(item.kind) === 'file') return [itemRoot];
+async function listVideoFilesForItem(item: PlanningItem) {
+	const library = getLibrary(item.libraryPathId);
+	const itemRoot = joinRemote(library.path, item.topLevelPath);
+	if (item.kind === 'file') return [itemRoot];
 	const client = getClientForSource(library.sourceId);
 	const videos: string[] = [];
 	async function walk(root: string, depth: number) {

@@ -9,9 +9,10 @@ description: Use for Renarr Drizzle ORM and SQLite work sqliteTable schemas, bet
 
 - App: single SvelteKit app with a worker entry.
 - Database: SQLite via `better-sqlite3`.
-- Drizzle setup: `src/lib/server/db/index.ts` uses `drizzle(getSqlite(), { schema })`.
+- Drizzle setup: `src/lib/server/db/index.ts` keeps the raw SQLite connection private and exports `getDb()` as `drizzle({ client, schema })`.
 - Schema file: `src/lib/server/db/schema.ts`.
-- Runtime migration path: hand-written `better-sqlite3` SQL in `migrate(db)`.
+- Drizzle-kit config: root `drizzle.config.ts`.
+- Migration workflow: beta uses `pnpm run db:push`; formal release uses `pnpm run db:generate` and `pnpm run db:migrate` with committed root `drizzle/` artifacts.
 - Package versions can differ from examples. Check `package.json` first; this project is on Drizzle v1 RC packages.
 - Detailed migration workflow lives in the `db-migrations` skill.
 
@@ -33,12 +34,14 @@ export const libraryItems = sqliteTable(
 );
 ```
 
-For every schema edit, update both:
+For every schema edit:
 
-- Drizzle schema in `src/lib/server/db/schema.ts`.
-- Runtime DDL/migration SQL in `src/lib/server/db/index.ts`.
+- Update Drizzle schema in `src/lib/server/db/schema.ts`.
+- Update service/API/domain types that read or write the changed shape.
+- During beta, run `pnpm run db:push` to sync the local SQLite schema.
+- For formal release migration history, run `pnpm run db:generate`, commit `drizzle/`, and apply with `pnpm run db:migrate`.
 
-Drizzle schema alone does not change the SQLite database in the current project.
+Do not add hand-written `migrate(db)` DDL back into `src/lib/server/db/index.ts`.
 
 ## Column Choices
 
@@ -49,7 +52,7 @@ Drizzle schema alone does not change the SQLite database in the current project.
 - JSON payloads: current tables store JSON as `text` columns with `_json` suffix. Keep that convention unless introducing a broader JSON abstraction.
 - Counts: use `integer(...).notNull()` and make SQL defaults explicit when old rows need backfill behavior.
 
-Keep CHECK constraints in raw SQL aligned with TypeScript unions and Zod schemas. Drizzle SQLite enum typing does not replace runtime SQLite constraints.
+Keep TypeScript unions and Zod schemas aligned with Drizzle schema choices. Drizzle SQLite enum typing is local typing; if runtime enforcement matters, add an explicit Drizzle-supported constraint or enforce it at the service/API layer.
 
 ## Indexes and Constraints
 
@@ -59,50 +62,47 @@ Use the callback array form for indexes and table constraints:
 (table) => [uniqueIndex('library_item_identity').on(table.libraryPathId, table.topLevelPath)]
 ```
 
-Mirror every meaningful index/unique constraint in the SQL migration path. In SQLite DDL, use `create index if not exists` or `create unique index if not exists` when adding standalone indexes.
+Every meaningful index/unique constraint belongs in `schema.ts`; drizzle-kit reads this file for push/generate.
 
 Use foreign keys only when the app depends on database enforcement. If relying on cascades, confirm SQLite foreign keys are enabled in the runtime connection before assuming they fire.
 
 ## Query Style
 
-Prefer the simplest query surface that fits the surrounding service:
+Production services and route server code should use Drizzle builders through `getDb()`:
 
-- Use Drizzle builders for new typed CRUD where schema coupling helps.
-- Keep `better-sqlite3` prepared statements where existing services already use them, where synchronous worker behavior is clearer, or where raw SQLite is materially simpler.
-- Avoid mixing Drizzle and raw SQL in the same function unless there is a concrete benefit.
+- Use explicit `select().from().where()` for simple reads.
+- Use `insert().values()`, `update().set().where()`, and `delete().where()` for writes.
+- Keep returned DTO shape stable; map Drizzle camelCase rows to existing API payloads when needed.
+- Avoid relational query magic unless the task explicitly needs relations.
 
-For Drizzle builders, prefer explicit `select().from().where()` over relational query magic. Drizzle v1 removed Relational Queries v1; use `defineRelations` only when a task explicitly needs relational query support.
+Drizzle v1 removed Relational Queries v1; use `defineRelations` only when a task explicitly needs relational query support.
 
 ```ts
-const [item] = await db
-  .select()
-  .from(libraryItems)
-  .where(eq(libraryItems.id, itemId))
-  .limit(1);
+const item = getDb().select().from(libraryItems).where(eq(libraryItems.id, itemId)).get();
 ```
 
 For parent/child reads, two clear queries are usually better than hiding behavior in relation loading:
 
 ```ts
-const [plan] = await db.select().from(renamePlans).where(eq(renamePlans.id, planId)).limit(1);
-const rows = await db.select().from(renamePlanItems).where(eq(renamePlanItems.planId, planId));
+const plan = db.select().from(renamePlans).where(eq(renamePlans.id, planId)).get();
+const rows = db.select().from(renamePlanItems).where(eq(renamePlanItems.planId, planId)).all();
 ```
 
 ## Raw SQL
 
-Raw SQL is acceptable for:
+Raw SQL is not part of the production service-layer API. Acceptable exceptions are:
 
-- boot-time SQLite DDL in `migrate(db)`;
-- SQLite table rebuild migrations;
-- operations where Drizzle v1 RC lacks a clean builder;
-- performance-sensitive existing service code using prepared statements.
+- private SQLite connection initialization in `src/lib/server/db/index.ts` for pragmas;
+- drizzle-kit internals and future formal migration tooling;
+- test helpers such as `src/lib/server/test-db.ts`;
+- future formal compatibility tests that need to construct an old schema shape.
 
 When using raw SQL, keep it reviewable:
 
 - Use parameters for user-controlled values.
 - Keep selected row interfaces narrow and local.
 - Prefer named helper functions over repeated SQL string fragments.
-- Add focused regression tests for data migrations and non-trivial updates.
+- Do not expand raw SQL back into `$lib/server/services` or route server handlers.
 
 ## Drizzle v1 RC Notes
 
@@ -110,6 +110,7 @@ Check official docs before using version-sensitive APIs:
 
 - `https://orm.drizzle.team/docs/sqlite/upgrade-v1`
 - `https://orm.drizzle.team/docs/sqlite/v0-v1-changes`
+- `https://orm.drizzle.team/docs/sqlite/migrations`
 
 Relevant v1 changes:
 
