@@ -16,9 +16,9 @@ export function statusLabel(status: string, reason?: string | null) {
 		pending_review: m.state_pending_review,
 		identified: m.state_identified,
 		organized: m.state_organized,
-		failed: m.state_failed,
 		queued: m.state_queued,
 		running: m.state_running,
+		failed: m.state_failed,
 		succeeded: m.state_succeeded,
 		partially_failed: m.state_partially_failed
 	};

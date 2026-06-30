@@ -5,8 +5,7 @@ export const itemStatusSchema = z.enum([
 	'unidentified',
 	'pending_review',
 	'identified',
-	'organized',
-	'failed'
+	'organized'
 ]);
 export const taskStateSchema = z.enum(['queued', 'running', 'succeeded', 'partially_failed', 'failed']);
 
@@ -190,6 +189,11 @@ export type RenamePlanDraftRow = {
 	targetTopLevelPath: string;
 	mediaKind: MediaType;
 	sourceMediaId: string | null;
+	title: string;
+	originalTitle: string;
+	year: number | null;
+	posterPath: string | null;
+	posterUrl: string | null;
 	season: number | null;
 	episode: number | null;
 	overwrite: boolean;

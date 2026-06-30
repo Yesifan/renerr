@@ -24,8 +24,11 @@ Renarr 是深色管理台风格应用
 - AList WebDAV 跨目录重命名需要兼容“先移动到目标目录原文件名，再重命名为目标文件名”的两步语义；整理执行器需要能从 intermediate path 恢复。
 - 统一通过 `execute_rename_plan` 执行自动/手动整理，自动和手动只作为 rename plan 的来源与确认方式区分。
 - 整理成功后必须同步更新 `library_items` 的 `video_file_count`、`compliant_file_count`、`non_compliant_file_count`，不能依赖下一次扫描刷新列表摘要。
-- `failed` item 允许手动扫描、手动 TMDB 指定、生成整理计划；`pending_review` 必须先手动指定后再整理。
-- folder/item detail 需要实时读取 WebDAV，扫描缓存只用于列表摘要。
+- 不再使用 item status `failed` 表示重命名失败；执行失败只展示在任务、日志、execution records 和 summary 中。
+- 旧 `failed` item 读取或迁移时按是否已有 identity 兼容为 `identified` 或 `pending_review`。
+- `pending_review` 必须先手动指定 TMDB identity；手动指定成功后直接进入 rename plan draft 编辑流程。
+- `identified` item 可手动指定或执行计划；`organized` item 只有存在 non-compliant 文件时显示执行计划，不显示手动指定。
+- item detail 不展示实时文件列表；创建 rename plan draft 时才实时读取 WebDAV 文件。
 
 ## V1 核心实现文件
 
@@ -49,11 +52,11 @@ Renarr 是深色管理台风格应用
 - 后端、worker、日志 message 使用英文原文；普通 UI 错误通过 error code 翻译成中文。
 - 默认深色媒体管理工具风格，无主题切换入口；状态色保持克制。
 - 左侧使用多级树状导航：媒体库 path、系统任务、日志、设置。
-- WebDAV library setup 浏览器只显示目录；item detail 显示目录中的视频、sidecar、metadata 等文件。
+- WebDAV library setup 浏览器只显示目录；item detail 展示媒体身份、海报、完整远端路径和扫描统计，不展示实时文件列表。
 - TV/Movie library detail 都只展示顶级目录中的视频文件和文件夹；TV 海报墙按一级剧集文件夹展示。
 - 数据库记录一级 `library_items` 的身份、状态和统计；不长期保存内部视频文件表。
 - `organized` 表示一级文件夹已匹配 identity，不要求内部文件全部符合当前命名模板；通过 non-compliant count 提示“有待整理文件”。
-- 对 item 的手动整理入口覆盖 organized 内部不合规文件，不需要额外提供 organized 专用整理入口。
+- `organized` 内部不合规文件通过执行计划入口整理，不提供 organized 手动指定入口。
 - 顶级单文件整理后视为原 file item 删除、新 folder item 新建，不做 file -> folder 身份转换。
 - 扫描以远端一级目录为事实来源，同步 `library_items`，消失的 item 硬删除。
 - TMDB 请求需要支持环境变量代理。

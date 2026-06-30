@@ -2,16 +2,13 @@
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { resolve } from '$app/paths';
 	import { api, post, put } from '$lib/client/api';
-	import { libraryLabel, statusClass, statusText } from '$lib/client/formatters';
+	import { libraryLabel } from '$lib/client/formatters';
 	import { queryKeys } from '$lib/client/query-keys';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import * as Card from '$lib/components/ui/card';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import { messages as m } from '$lib/i18n';
 	import type {
 		Item,
-		ItemDetail,
 		RenamePlanDraft,
 		RenamePlanDraftRow,
 		TmdbResult
@@ -29,11 +26,9 @@
 	let showTaskLink = $state(false);
 	let manualSearch = $state('');
 	let searchResults = $state<TmdbResult[]>([]);
-
-	const detailQuery = createQuery<ItemDetail>(() => ({
-		queryKey: queryKeys.itemDetail(params.item_id),
-		queryFn: () => api<ItemDetail>(`/api/library-items/${params.item_id}`)
-	}));
+	let manualDialogOpen = $state(false);
+	let planDialogOpen = $state(false);
+	let recognizedItem = $state<Item | null>(null);
 
 	const draftQuery = createQuery<RenamePlanDraft>(() => ({
 		queryKey: queryKeys.planDraft(draftId),
@@ -41,8 +36,8 @@
 		enabled: Boolean(draftId)
 	}));
 
-	const item = $derived(detailQuery.data?.item ?? data.item);
-	const library = $derived(detailQuery.data?.library ?? data.library);
+	const item = $derived(recognizedItem ?? data.item);
+	const library = $derived(data.library);
 	const manualResults = $derived(searchResults.length ? searchResults : item.recognitionCandidates || []);
 
 	const scanItemMutation = createMutation(() => ({
@@ -54,7 +49,7 @@
 		mutationFn: (target: Item) => post<RenamePlanDraft>(`/api/library-items/${target.id}/plan`),
 		onSuccess: async (draft) => {
 			draftId = draft.id;
-			message = m.action_view_plan();
+			planDialogOpen = true;
 			await queryClient.invalidateQueries({ queryKey: queryKeys.planDraft(draft.id) });
 		}
 	}));
@@ -66,6 +61,12 @@
 					{
 						id: row.id,
 						selected: row.selected,
+						sourceMediaId: row.sourceMediaId,
+						title: row.title,
+						originalTitle: row.originalTitle,
+						year: row.year,
+						posterPath: row.posterPath,
+						posterUrl: row.posterUrl,
 						season: row.season,
 						episode: row.episode,
 						conflictAction: row.conflictAction
@@ -85,23 +86,27 @@
 	async function afterTaskMutation(text: string) {
 		message = text;
 		showTaskLink = true;
+		planDialogOpen = false;
 		await Promise.all([
 			queryClient.invalidateQueries({ queryKey: queryKeys.libraries }),
 			queryClient.invalidateQueries({ queryKey: queryKeys.libraryItems(params.id) }),
-			queryClient.invalidateQueries({ queryKey: queryKeys.itemDetail(params.item_id) }),
 			queryClient.invalidateQueries({ queryKey: queryKeys.tasks })
 		]);
 	}
 
 	async function searchItem(target: Item) {
 		const query = manualSearch || target.title || target.topLevelPath;
-		searchResults = await api<TmdbResult[]>(
-			`/api/library-items/${target.id}/recognition/search?q=${encodeURIComponent(query)}`
+		searchResults = await searchMedia(query);
+	}
+
+	async function searchMedia(query: string) {
+		return api<TmdbResult[]>(
+			`/api/library-items/${params.item_id}/recognition/search?q=${encodeURIComponent(query)}`
 		);
 	}
 
 	async function chooseIdentity(target: Item, result: TmdbResult) {
-		await post(`/api/library-items/${target.id}/recognize`, {
+		recognizedItem = await post<Item>(`/api/library-items/${target.id}/recognize`, {
 			sourceMediaType: library.mediaType,
 			sourceMediaId: String(result.id),
 			title: result.title,
@@ -110,21 +115,16 @@
 			posterPath: result.posterPath
 		});
 		message = m.toast_saved();
+		manualDialogOpen = false;
+		searchResults = [];
 		await Promise.all([
 			queryClient.invalidateQueries({ queryKey: queryKeys.libraries }),
-			queryClient.invalidateQueries({ queryKey: queryKeys.libraryItems(params.id) }),
-			queryClient.invalidateQueries({ queryKey: queryKeys.itemDetail(target.id) })
+			queryClient.invalidateQueries({ queryKey: queryKeys.libraryItems(params.id) })
 		]);
+		await createDraftMutation.mutateAsync(target);
 	}
 
 	async function submitDraft() {
-		const rows = draftQuery.data?.rows ?? [];
-		if (
-			rows.some((row) => row.selected && row.conflictAction === 'overwrite') &&
-			!confirm('确认覆盖冲突文件？')
-		) {
-			return;
-		}
 		await submitDraftMutation.mutateAsync();
 		draftId = null;
 	}
@@ -139,36 +139,46 @@
 	}
 
 	function canManualMatch(target: Item) {
-		return target.status === 'pending_review' || target.status === 'failed';
+		return target.status === 'pending_review' || target.status === 'identified';
 	}
 
 	function canScanItem(target: Item) {
-		return target.status === 'organized' || target.status === 'unidentified' || target.status === 'failed';
+		return target.status === 'organized' || target.status === 'unidentified';
 	}
 
 	function canCreatePlan(target: Item) {
-		return (
-			target.status === 'identified' ||
-			target.status === 'organized' ||
-			(target.status === 'failed' && Boolean(target.sourceMediaId))
-		);
+		return target.status === 'identified' || (target.status === 'organized' && (target.nonCompliantFileCount ?? 0) > 0);
 	}
+
 </script>
 
 <svelte:head>
 	<title>{item.title || item.topLevelPath} - Renarr</title>
 </svelte:head>
 
-<PageHeader title={item.title || item.topLevelPath} description={libraryLabel(library)} {message}>
-	{#snippet actions()}
+<div class="flex flex-col gap-5">
+	<header class="flex flex-wrap items-center justify-between gap-3">
+		<div class="min-w-0">
+			<a class="text-sm text-muted-foreground hover:text-foreground" href={resolve('/libraries/[id]', { id: params.id })}>
+				{libraryLabel(library)}
+			</a>
+			{#if message}
+				<div class="mt-1 text-sm text-muted-foreground">{message}</div>
+			{/if}
+		</div>
+		<div class="flex flex-wrap items-center justify-end gap-2">
 		<Button href={resolve('/libraries/[id]', { id: params.id })} variant="outline">返回列表</Button>
 		{#if showTaskLink}
 			<Button href={resolve('/system/tasks')} variant="link">{m.nav_tasks()}</Button>
 		{/if}
-		<Button disabled={detailQuery.isFetching} onclick={() => detailQuery.refetch()} variant="outline">刷新</Button>
 		{#if canScanItem(item)}
 			<Button disabled={busy()} onclick={() => scanItemMutation.mutate(item)} variant="outline">
 				{m.action_scan()}
+			</Button>
+		{/if}
+		{#if canManualMatch(item)}
+			<Button disabled={busy()} onclick={() => (manualDialogOpen = true)} variant="outline">
+				{m.action_manual_match()}
 			</Button>
 		{/if}
 		{#if canCreatePlan(item)}
@@ -176,13 +186,37 @@
 				{m.action_view_plan()}
 			</Button>
 		{/if}
-	{/snippet}
-</PageHeader>
+		</div>
+	</header>
 
-<div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-	<div class="flex min-w-0 flex-col gap-4">
-		<ItemDetailPanel {item} detail={detailQuery.data} isFetching={detailQuery.isFetching} />
+	<ItemDetailPanel {item} {library} />
+</div>
 
+<Dialog.Root bind:open={manualDialogOpen}>
+	<Dialog.Content class="max-h-[86vh] overflow-auto rounded-lg sm:max-w-2xl">
+		<Dialog.Header>
+			<Dialog.Title>{m.action_manual_match()}</Dialog.Title>
+			<Dialog.Description>选择 TMDB 结果后会直接生成可编辑的整理计划。</Dialog.Description>
+		</Dialog.Header>
+		<ManualMatchPanel
+			{item}
+			query={manualSearch}
+			results={manualResults}
+			searchLabel="搜索"
+			busy={busy()}
+			onQueryChange={(value) => (manualSearch = value)}
+			onSearch={searchItem}
+			onChoose={chooseIdentity}
+		/>
+	</Dialog.Content>
+</Dialog.Root>
+
+<Dialog.Root bind:open={planDialogOpen}>
+	<Dialog.Content class="max-h-[92vh] overflow-auto rounded-lg sm:max-w-[min(1180px,calc(100%-2rem))]">
+		<Dialog.Header>
+			<Dialog.Title>整理计划</Dialog.Title>
+			<Dialog.Description>先核对每行影视信息、季集和冲突处理，再确认最终目标完整路径。</Dialog.Description>
+		</Dialog.Header>
 		{#if draftQuery.data}
 			<RenamePlanPanel
 				draft={draftQuery.data}
@@ -190,62 +224,10 @@
 				submitLabel={m.action_submit()}
 				onUpdateRow={(row) => updateDraftMutation.mutate(row)}
 				onSubmit={submitDraft}
+				onSearchMedia={searchMedia}
 			/>
+		{:else}
+			<div class="rounded-md border border-dashed border-border p-6 text-sm text-muted-foreground">正在生成整理计划...</div>
 		{/if}
-	</div>
-
-	<aside class="flex min-w-0 flex-col gap-4">
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Item 摘要</Card.Title>
-				<Card.Description>扫描缓存摘要，文件详情以实时读取为准。</Card.Description>
-			</Card.Header>
-			<Card.Content class="flex flex-col gap-3">
-				<div class="aspect-[2/3] overflow-hidden rounded-xl bg-muted">
-					{#if item.posterUrl}
-						<img class="h-full w-full object-cover" src={item.posterUrl} alt={item.title || item.topLevelPath} />
-					{:else}
-						<div class="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
-							{item.kind === 'folder' ? '文件夹' : '视频文件'}
-						</div>
-					{/if}
-				</div>
-				<div class="flex flex-wrap gap-2">
-					<Badge variant="outline" class={statusClass(item.status)}>
-						{statusText(item.status, item.reviewReason)}
-					</Badge>
-					{#if item.nonCompliantFileCount}
-						<Badge variant="outline" class="border-amber-500/30 bg-amber-500/15 text-amber-300">
-							待整理 {item.nonCompliantFileCount}
-						</Badge>
-					{/if}
-				</div>
-				<div class="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-					<div class="rounded-xl bg-muted p-2">视频 {item.videoFileCount}</div>
-					<div class="rounded-xl bg-muted p-2">符合 {item.compliantFileCount ?? 0}</div>
-					<div class="rounded-xl bg-muted p-2">待整理 {item.nonCompliantFileCount ?? 0}</div>
-				</div>
-			</Card.Content>
-		</Card.Root>
-
-		{#if canManualMatch(item)}
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>{m.action_manual_match()}</Card.Title>
-					<Card.Description>为 pending 或 failed item 指定 TMDB identity。</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<ManualMatchPanel
-						{item}
-						query={manualSearch}
-						results={manualResults}
-						searchLabel={m.action_manual_match()}
-						onQueryChange={(value) => (manualSearch = value)}
-						onSearch={searchItem}
-						onChoose={chooseIdentity}
-					/>
-				</Card.Content>
-			</Card.Root>
-		{/if}
-	</aside>
-</div>
+	</Dialog.Content>
+</Dialog.Root>

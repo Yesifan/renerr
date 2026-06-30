@@ -42,8 +42,8 @@ export async function scanLibraryPath(libraryPathId: string) {
 		}
 		inheritIdentityFromRenameTarget(id);
 		const item = db.prepare('select * from library_items where id = ?').get(id) as Record<string, unknown>;
-		const status = String(item.status);
-		if (status === 'pending_review' || status === 'failed') continue;
+		const status = normalizeLegacyItemStatus(item);
+		if (status === 'pending_review') continue;
 		if (status === 'identified') continue;
 		if (status === 'organized') {
 			await refreshItemStats(id);
@@ -131,14 +131,14 @@ export async function scanLibraryItem(itemId: string) {
 	const db = getSqlite();
 	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<string, unknown> | undefined;
 	if (!item) throw new ApiError('item.not_found', 'Library item not found', 404);
-	const status = String(item.status);
-	if (status !== 'organized' && status !== 'unidentified' && status !== 'failed') {
+	const status = normalizeLegacyItemStatus(item);
+	if (status !== 'organized' && status !== 'unidentified') {
 		throw new ApiError('item.scan_not_allowed', 'Library item cannot be scanned in its current status', 400, {
 			status
 		});
 	}
 	const videos = await refreshItemStats(itemId);
-	if (status === 'organized' || status === 'failed') {
+	if (status === 'organized') {
 		log('info', 'LibraryScanner', 'Library item scan completed', { libraryItemId: itemId, status });
 		return;
 	}
@@ -251,4 +251,18 @@ function markPending(itemId: string, reason: string, candidates: unknown[]) {
 			 recognition_candidates_json = @candidates, updated_at = @now where id = @id`
 		)
 		.run({ id: itemId, reason, candidates: JSON.stringify(candidates), now: nowIso() });
+}
+
+function normalizeLegacyItemStatus(item: Record<string, unknown>) {
+	if (String(item.status) !== 'failed') return String(item.status);
+	const status = item.source_media_id ? 'identified' : 'pending_review';
+	getSqlite()
+		.prepare(
+			`update library_items set status = @status,
+			 review_reason = case when @status = 'pending_review' then coalesce(review_reason, 'legacy_failed') else review_reason end,
+			 recognition_candidates_json = coalesce(recognition_candidates_json, '[]'),
+			 updated_at = @now where id = @id`
+		)
+		.run({ id: String(item.id), status, now: nowIso() });
+	return status;
 }

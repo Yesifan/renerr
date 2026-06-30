@@ -1,7 +1,4 @@
-## Purpose
-定义 pending review、手动 TMDB 指定、rename plan draft 编辑和最终确认的交互与数据规则。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Pending review 和 failed 支持手动 TMDB 搜索
 系统 SHALL 允许所有 `pending_review` item 手动搜索并指定 TMDB identity；`pending_review` MAY 包含系统候选，也 MAY 没有候选。

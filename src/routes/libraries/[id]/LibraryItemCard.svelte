@@ -8,7 +8,6 @@
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
 	import CircleAlert from 'lucide-svelte/icons/circle-alert';
 	import CircleHelp from 'lucide-svelte/icons/circle-help';
-	import XCircle from 'lucide-svelte/icons/x-circle';
 
 	type Props = {
 		item: Item;
@@ -18,12 +17,6 @@
 	let { item, libraryPathId }: Props = $props();
 
 	const statusTheme = $derived.by(() => {
-		if (item.status === 'failed') {
-			return {
-				label: 'border-red-500/30 bg-red-500/20 text-red-200 ring-red-500/30',
-				icon: 'text-red-200'
-			};
-		}
 		if (item.status === 'pending_review') {
 			return {
 				label: 'border-amber-500/30 bg-amber-500/20 text-amber-200 ring-amber-500/30',
@@ -73,9 +66,7 @@
 			]}
 			title={statusText(item.status, item.reviewReason)}
 		>
-			{#if item.status === 'failed'}
-				<XCircle class={iconClass} aria-hidden="true" />
-			{:else if item.status === 'pending_review'}
+			{#if item.status === 'pending_review'}
 				<CircleAlert class={iconClass} aria-hidden="true" />
 			{:else if item.status === 'identified'}
 				<BadgeCheck class={iconClass} aria-hidden="true" />

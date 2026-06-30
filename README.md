@@ -56,16 +56,30 @@ RENARR_TMDB_BASE_URL=https://your-proxy.example.com/3
 
 自动和手动整理最终都进入 `execute_rename_plan` task。
 
-手动整理流程：
+item 状态规则：
 
-1. 用户在 library item detail 中查看实时 WebDAV 文件列表。
-2. 对 `identified` 或 `organized` item 创建 plan draft。
-3. 前端展示 rows，允许选择/取消、调整 TV season/episode、处理冲突。
-4. 提交 draft 后创建 confirmed `rename_plan(mode='manual')`。
-5. worker 执行 `execute_rename_plan`，逐文件校验 source/target，移动视频和 sidecar，写 metadata 和 execution records。
+- `pending_review` 表示需要用户确认身份，可以有 TMDB 候选，也可以没有候选。
+- 识别失败不再使用 item status `failed`；旧 `failed` item 会兼容为 `identified` 或 `pending_review`。
+- 重命名执行失败只记录在任务、日志、execution records 和执行摘要中，不修改 item status。
 
-扫描任务：
+手动指定流程：
+
+1. 用户在 item detail 点击“手动指定”。
+2. Dialog 优先展示扫描候选，同时支持 TMDB 搜索。
+3. 用户选择结果后保存 item identity，并直接进入 rename plan draft 编辑。
+
+执行计划流程：
+
+1. 对 `identified` item，或包含待整理文件的 `organized` item 创建 plan draft。
+2. 创建 draft 时实时读取 WebDAV 文件；item detail 页面本身不展示实时文件列表。
+3. 前端展示可编辑 rows，允许选择/取消、调整 TV season/episode、行级 TMDB 选择、处理冲突。
+4. 最终确认页以目标完整路径为主，不使用可编辑 table。
+5. 提交 draft 后创建 confirmed `rename_plan(mode='manual')`。
+6. worker 执行 `execute_rename_plan`，逐文件校验 source/target，移动视频和 sidecar，写 metadata 和 execution records。
+
+后台任务：
 
 - `scan_library_path`
 - `scan_library_item`
 - `execute_rename_plan`
+- `cleanup_invalid_dirs`

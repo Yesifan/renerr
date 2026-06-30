@@ -9,6 +9,7 @@ import { extname, isVideoPath, joinRemote, sidecarExtensions, stripExt } from '.
 import { targetPathFor } from './naming';
 import { parseTvName } from './parser';
 import { enqueueTask } from './tasks';
+import { posterUrl } from './tmdb';
 
 type Mode = 'auto' | 'manual';
 
@@ -20,6 +21,11 @@ export type DraftRow = {
 	targetTopLevelPath: string;
 	mediaKind: MediaType;
 	sourceMediaId: string | null;
+	title: string;
+	originalTitle: string;
+	year: number | null;
+	posterPath: string | null;
+	posterUrl: string | null;
 	season: number | null;
 	episode: number | null;
 	overwrite: boolean;
@@ -51,7 +57,7 @@ export async function createPlanForItem(itemId: string, mode: Mode) {
 
 export async function createDraftForItem(itemId: string) {
 	const item = getPlanningItem(itemId);
-	if (!['identified', 'organized', 'failed'].includes(String(item.status))) {
+	if (!['identified', 'organized'].includes(String(item.status))) {
 		throw new ApiError('item.plan_not_allowed', 'Item must be identified or organized before planning', 400, {
 			status: String(item.status)
 		});
@@ -97,11 +103,19 @@ export async function updateDraft(draftId: string, input: unknown) {
 		rows.map(async (row) => {
 			const update = updates.find((candidate) => candidate.id === row.id);
 			if (!update) return row;
+			const nextPosterPath = nullableString(update.posterPath, row.posterPath);
 			const merged: DraftRow = {
 				...row,
 				selected: typeof update.selected === 'boolean' ? update.selected : row.selected,
 				season: numberOrNull(update.season, row.season),
 				episode: numberOrNull(update.episode, row.episode),
+				sourceMediaId: stringOrFallback(update.sourceMediaId, row.sourceMediaId),
+				title: requiredString(update.title, row.title),
+				originalTitle: requiredString(update.originalTitle, row.originalTitle),
+				year: numberOrNull(update.year, row.year),
+				posterPath: nextPosterPath,
+				posterUrl:
+					'posterUrl' in update ? nullableString(update.posterUrl, row.posterUrl) : posterUrl(nextPosterPath),
 				conflictAction: update.conflictAction === 'overwrite' ? 'overwrite' : null,
 				overwrite: update.conflictAction === 'overwrite'
 			};
@@ -182,6 +196,7 @@ async function buildRow(
 	const season = library.mediaType === 'tv' ? (override?.season ?? parsedTv.season ?? 1) : null;
 	const episode = library.mediaType === 'tv' ? (override?.episode ?? parsedTv.episode ?? null) : null;
 	const status = library.mediaType === 'tv' && !episode ? 'invalid' : 'valid';
+	const media = mediaInfo(item, override);
 	const target =
 		status === 'valid'
 			? targetPathFor(
@@ -189,8 +204,8 @@ async function buildRow(
 					library.mediaType,
 					sourceFilePath,
 					{
-						title: String(item.title),
-						year: item.year ? Number(item.year) : undefined,
+						title: media.title,
+						year: media.year ?? undefined,
 						season,
 						episode,
 						extension: extname(sourceFilePath)
@@ -207,7 +222,12 @@ async function buildRow(
 		targetFilePath: target.targetFilePath,
 		targetTopLevelPath: target.targetTopLevelPath,
 		mediaKind: library.mediaType,
-		sourceMediaId: item.source_media_id ? String(item.source_media_id) : null,
+		sourceMediaId: media.sourceMediaId,
+		title: media.title,
+		originalTitle: media.originalTitle,
+		year: media.year,
+		posterPath: media.posterPath,
+		posterUrl: media.posterUrl,
 		season,
 		episode,
 		overwrite: conflictAction === 'overwrite',
@@ -269,6 +289,18 @@ function getPlanningItem(itemId: string) {
 		| Record<string, unknown>
 		| undefined;
 	if (!item) throw new ApiError('item.not_found', 'Library item not found', 404);
+	if (String(item.status) === 'failed') {
+		const nextStatus = item.source_media_id ? 'identified' : 'pending_review';
+		getSqlite()
+			.prepare(
+				`update library_items set status = @status,
+				 review_reason = case when @status = 'pending_review' then coalesce(review_reason, 'legacy_failed') else review_reason end,
+				 recognition_candidates_json = coalesce(recognition_candidates_json, '[]'),
+				 updated_at = @now where id = @id`
+			)
+			.run({ id: itemId, status: nextStatus, now: nowIso() });
+		return { ...item, status: nextStatus };
+	}
 	return item;
 }
 
@@ -288,6 +320,37 @@ function numberOrNull(value: unknown, fallback: number | null) {
 	if (value === null) return null;
 	const number = Number(value);
 	return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function stringOrFallback(value: unknown, fallback: string | null): string | null {
+	if (typeof value !== 'string') return fallback;
+	const trimmed = value.trim();
+	return trimmed ? trimmed : fallback;
+}
+
+function requiredString(value: unknown, fallback: string): string {
+	if (typeof value !== 'string') return fallback;
+	const trimmed = value.trim();
+	return trimmed || fallback;
+}
+
+function nullableString(value: unknown, fallback: string | null): string | null {
+	if (value === null) return null;
+	if (typeof value !== 'string') return fallback;
+	const trimmed = value.trim();
+	return trimmed || null;
+}
+
+function mediaInfo(item: Record<string, unknown>, override?: DraftRow) {
+	const posterPath = override?.posterPath ?? (item.poster_path ? String(item.poster_path) : null);
+	return {
+		sourceMediaId: override?.sourceMediaId ?? (item.source_media_id ? String(item.source_media_id) : null),
+		title: override?.title || String(item.title),
+		originalTitle: override?.originalTitle || (item.original_title ? String(item.original_title) : String(item.title)),
+		year: override?.year ?? (item.year ? Number(item.year) : null),
+		posterPath,
+		posterUrl: override?.posterUrl ?? posterUrl(posterPath)
+	};
 }
 
 async function listVideoFilesForItem(item: Record<string, unknown>) {

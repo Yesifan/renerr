@@ -112,8 +112,8 @@ function updateItemAfterExecution(itemId: string, mediaType: 'movie' | 'tv', sum
 	const summaryJson = JSON.stringify({ ok: summary.ok, failed: summary.failed });
 	if (summary.failed > 0) {
 		db.prepare(
-			`update library_items set status = 'failed', last_execution_summary_json = @summary,
-			 updated_at = @updatedAt where id = @id and status in ('identified', 'organized', 'failed')`
+			`update library_items set last_execution_summary_json = @summary,
+			 updated_at = @updatedAt where id = @id and status in ('identified', 'organized')`
 		).run({ id: itemId, summary: summaryJson, updatedAt });
 		return;
 	}
@@ -126,7 +126,7 @@ function updateItemAfterExecution(itemId: string, mediaType: 'movie' | 'tv', sum
 		 unknown_file_count = 0,
 		 last_execution_summary_json = @summary,
 		 updated_at = @updatedAt
-		 where id = @id and status in ('identified', 'organized', 'failed')`
+		 where id = @id and status in ('identified', 'organized')`
 	).run({
 		id: itemId,
 		videos: summary.succeededTargets.length,

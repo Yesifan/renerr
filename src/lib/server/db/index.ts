@@ -139,4 +139,16 @@ function migrate(db: Database.Database) {
 			context_json text not null default '{}'
 		);
 	`);
+	db.exec(`
+		update library_items
+		set status = 'identified', updated_at = datetime('now')
+		where status = 'failed' and source_media_id is not null;
+
+		update library_items
+		set status = 'pending_review',
+			review_reason = coalesce(review_reason, 'legacy_failed'),
+			recognition_candidates_json = coalesce(recognition_candidates_json, '[]'),
+			updated_at = datetime('now')
+		where status = 'failed' and source_media_id is null;
+	`);
 }

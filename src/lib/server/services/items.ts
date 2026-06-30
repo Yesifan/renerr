@@ -107,15 +107,22 @@ export function setItemIdentity(
 }
 
 export function mapItem(row: Record<string, unknown>) {
+	const sourceMediaId = row.source_media_id ? String(row.source_media_id) : null;
+	const status =
+		String(row.status) === 'failed'
+			? sourceMediaId
+				? 'identified'
+				: 'pending_review'
+			: String(row.status);
 	return {
 		id: String(row.id),
 		libraryPathId: String(row.library_path_id),
 		kind: row.kind as 'folder' | 'file',
 		topLevelPath: String(row.top_level_path),
-		status: String(row.status),
+		status,
 		source: row.source ? String(row.source) : null,
 		sourceMediaType: row.source_media_type ? String(row.source_media_type) : null,
-		sourceMediaId: row.source_media_id ? String(row.source_media_id) : null,
+		sourceMediaId,
 		title: row.title ? String(row.title) : null,
 		originalTitle: row.original_title ? String(row.original_title) : null,
 		year: row.year ? Number(row.year) : null,

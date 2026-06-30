@@ -64,7 +64,7 @@ describe('V1 core flows', () => {
 		db.close();
 	});
 
-	test('scanLibraryPath skips pending review and failed items', async () => {
+	test('scanLibraryPath skips pending review items', async () => {
 		const rootList = vi.fn(async () => [{ basename: 'Show1', type: 'directory' }]);
 		await freshDb();
 		vi.doMock('./sources', () => ({
@@ -187,9 +187,8 @@ describe('V1 core flows', () => {
 		db.close();
 	});
 
-	test('scanLibraryItem allows failed items and keeps the failed state', async () => {
+	test('scanLibraryItem converts legacy failed items without identity to pending review', async () => {
 		await freshDb();
-		const listDirectory = vi.fn(async () => [{ basename: 'Show1.S01E01.mkv', type: 'file' }]);
 		vi.doMock('./sources', () => ({
 			getLibrary: () => ({
 				id: 'lib1',
@@ -201,7 +200,7 @@ describe('V1 core flows', () => {
 				createdAt: '',
 				updatedAt: ''
 			}),
-			getClientForSource: () => ({ listDirectory })
+			getClientForSource: () => ({ listDirectory: vi.fn() })
 		}));
 		const db = (await import('$lib/server/db')).getSqlite();
 		seedLibrary(db);
@@ -213,12 +212,11 @@ describe('V1 core flows', () => {
 		).run();
 		const { scanLibraryItem } = await import('./scanner');
 
-		await scanLibraryItem('item1');
+		await expect(scanLibraryItem('item1')).rejects.toMatchObject({ code: 'item.scan_not_allowed' });
 
-		expect(db.prepare('select status, video_file_count, compliant_file_count from library_items where id = ?').get('item1')).toEqual({
-			status: 'failed',
-			video_file_count: 1,
-			compliant_file_count: 1
+		expect(db.prepare('select status, review_reason from library_items where id = ?').get('item1')).toEqual({
+			status: 'pending_review',
+			review_reason: 'legacy_failed'
 		});
 		db.close();
 	});
@@ -265,6 +263,66 @@ describe('V1 core flows', () => {
 			status: 'confirmed'
 		});
 		expect(db.prepare('select count(*) as count from rename_plan_items').get()).toEqual({ count: 1 });
+		db.close();
+	});
+
+	test('draft row identity override recomputes only that row target path', async () => {
+		await freshDb();
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				listDirectory: vi.fn(async () => [{ basename: 'Show1.S01E01.mkv', type: 'file' }]),
+				exists: vi.fn(async () => false)
+			})
+		}));
+		const db = (await import('$lib/server/db')).getSqlite();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id, title,
+			  year, video_file_count, compliant_file_count, non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1', 'identified', 'tmdb', 'tv', '100', 'Show1',
+			  2024, 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		const { createDraftForItem, updateDraft } = await import('./planner');
+
+		const draft = await createDraftForItem('item1');
+		const updated = await updateDraft(draft.id, {
+			rows: [
+				{
+					id: draft.rows[0].id,
+					sourceMediaId: '200',
+					title: 'Other Show',
+					originalTitle: 'Other Show',
+					year: 2025,
+					posterPath: '/other.jpg',
+					posterUrl: null
+				}
+			]
+		});
+
+		expect(updated.rows[0]).toMatchObject({
+			sourceMediaId: '200',
+			title: 'Other Show',
+			year: 2025,
+			season: 1,
+			episode: 1,
+			targetTopLevelPath: 'Other Show (2025)'
+		});
+		expect(updated.rows[0].targetFilePath).toContain('/tv/Other Show (2025)/');
+		expect(db.prepare('select source_media_id, title from library_items where id = ?').get('item1')).toEqual({
+			source_media_id: '100',
+			title: 'Show1'
+		});
 		db.close();
 	});
 
@@ -370,14 +428,14 @@ describe('V1 core flows', () => {
 		db.close();
 	});
 
-	test('manual identity selection works for failed items', async () => {
+	test('manual identity selection works for pending review items without candidates', async () => {
 		const db = await freshDb();
 		seedLibrary(db);
 		db.prepare(
 			`insert into library_items
 			 (id, library_path_id, kind, top_level_path, status, video_file_count, compliant_file_count,
 			  non_compliant_file_count, unknown_file_count, created_at, updated_at)
-			 values ('item1', 'lib1', 'folder', 'FailedShow', 'failed', 0, 0, 0, 0, 'now', 'now')`
+			 values ('item1', 'lib1', 'folder', 'FailedShow', 'pending_review', 0, 0, 0, 0, 'now', 'now')`
 		).run();
 		const { setItemIdentity } = await import('./items');
 
@@ -394,7 +452,7 @@ describe('V1 core flows', () => {
 		db.close();
 	});
 
-	test('failed items with identity can create a manual plan draft', async () => {
+	test('legacy failed items with identity can create a manual plan draft', async () => {
 		await freshDb();
 		vi.doMock('./sources', () => ({
 			getLibrary: () => ({
@@ -482,6 +540,9 @@ describe('V1 core flows', () => {
 		await expect(executeRenamePlan('task1', 'plan1')).resolves.toBe('partially_failed');
 		expect(moves).toEqual(['/movies/source1.mkv->/movies/Movie (2024)/Movie.2024.mkv']);
 		expect(db.prepare('select count(*) as count from execution_records').get()).toEqual({ count: 2 });
+		expect(db.prepare('select status from library_items where id = ?').get('item1')).toEqual({
+			status: 'identified'
+		});
 		db.close();
 	});
 
@@ -529,6 +590,9 @@ describe('V1 core flows', () => {
 
 		await expect(executeRenamePlan('task1', 'plan1')).resolves.toBe('failed');
 		expect(moveFile).not.toHaveBeenCalled();
+		expect(db.prepare('select status from library_items where id = ?').get('item1')).toEqual({
+			status: 'identified'
+		});
 		db.close();
 	});
 
