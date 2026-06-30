@@ -17,6 +17,15 @@ Renarr 是深色管理台风格应用
 
 ## Backend/API Notes
 
+- 当前项目标记为开发中的 beta 版本；在正式发布版本前，不要求数据库或 API 无损升级/向后兼容，必要时可以直接重建本地 SQLite 数据库。
+- 如果用户准备发布正式版本，例如创建正式 release tag，必须提醒用户先修改 beta 状态说明，并重新确认数据库/API 兼容策略。
+- DB 访问目标是业务服务层统一使用 Drizzle API；`getSqlite()`/raw better-sqlite3 handle 不作为生产服务层公共 API 暴露，只允许 Drizzle migrator 和少量测试辅助工具使用。
+- Drizzle schema 是数据库结构的唯一真实来源；所有 SQLite 表、索引和约束都必须在 `src/lib/server/db/schema.ts` 表达，并由 drizzle-kit 迁移生成/维护。
+- drizzle-kit 配置使用仓库根目录 `drizzle.config.ts`，迁移输出使用根目录 `drizzle/`，不放入 `src` 或 `docs`。
+- 切换到 drizzle-kit 迁移后，不迁移 beta 期间废弃的 legacy 数据修正逻辑；旧开发库不兼容时直接重建。
+- DB/迁移改造按两层实施：先完成 schema、drizzle.config、初始 migration、启动 migrator 和 raw handle 边界；再逐个服务把查询改成 Drizzle API，期间不夹带业务规则变更。
+- DB raw SQL 边界通过 agent 约定和 code review 维护，不新增自动化检查脚本。
+- 当前 beta 阶段不保留旧库构造/迁移边界测试；已有 legacy 迁移测试可删除。未来正式兼容阶段如果需要构造旧 schema 测试，允许在测试辅助代码中使用 raw SQL。
 - 前端如果提供可操作开关，必须有真实后端 API 持久化，不要只改本地状态。
 - `publicSettings()` 会 mask TMDB API Key。保存设置时不要把 masked key 写回真实配置；设置保存应支持局部更新，并保留未提交的敏感字段。
 - 新增设置项时优先更新 schema、服务层和 API，一次保持类型闭环。

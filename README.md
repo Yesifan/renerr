@@ -2,6 +2,12 @@
 
 Renarr 是深色管理台风格的 WebDAV 媒体库整理工具。V1 使用 SvelteKit 全栈单项目、TypeScript、Tailwind CSS、shadcn-svelte、SQLite、Drizzle 风格 schema、Zod、Svelte Query 和 Paraglide JS。
 
+## 项目状态
+
+Renarr 当前是开发中的 beta 版本。在标记为正式发布版本前，数据库和 API 不承诺无损升级或向后兼容；开发期间 schema/API 变化可以要求重建本地 SQLite 数据库。
+
+准备创建正式 release tag 前，需要先更新这段 beta 描述，并重新确认数据库/API 的兼容策略。
+
 ## 开发
 
 安装依赖后启动 Web：
