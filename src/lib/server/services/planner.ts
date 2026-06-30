@@ -40,9 +40,14 @@ export async function createPlanForItem(itemId: string, mode: Mode) {
 	const db = getSqlite();
 	const item = getPlanningItem(itemId);
 	if (!['identified', 'organized'].includes(String(item.status))) {
-		throw new ApiError('item.plan_not_allowed', 'Item must be identified or organized before planning', 400, {
-			status: String(item.status)
-		});
+		throw new ApiError(
+			'item.plan_not_allowed',
+			'Item must be identified or organized before planning',
+			400,
+			{
+				status: String(item.status)
+			}
+		);
 	}
 	const library = getLibrary(String(item.library_path_id));
 	const sourceFiles = await listVideoFilesForItem(item);
@@ -58,9 +63,14 @@ export async function createPlanForItem(itemId: string, mode: Mode) {
 export async function createDraftForItem(itemId: string) {
 	const item = getPlanningItem(itemId);
 	if (!['identified', 'organized'].includes(String(item.status))) {
-		throw new ApiError('item.plan_not_allowed', 'Item must be identified or organized before planning', 400, {
-			status: String(item.status)
-		});
+		throw new ApiError(
+			'item.plan_not_allowed',
+			'Item must be identified or organized before planning',
+			400,
+			{
+				status: String(item.status)
+			}
+		);
 	}
 	if (!item.source_media_id || !item.title) {
 		throw new ApiError('item.plan_not_allowed', 'Item must have an identity before planning', 400, {
@@ -69,7 +79,9 @@ export async function createDraftForItem(itemId: string) {
 	}
 	const library = getLibrary(String(item.library_path_id));
 	const sourceFiles = await listVideoFilesForItem(item);
-	const rows = await Promise.all(sourceFiles.map((sourceFilePath) => buildRow(item, library, sourceFilePath, true)));
+	const rows = await Promise.all(
+		sourceFiles.map((sourceFilePath) => buildRow(item, library, sourceFilePath, true))
+	);
 	const now = nowIso();
 	const id = newId();
 	getSqlite()
@@ -92,13 +104,15 @@ export async function createDraftForItem(itemId: string) {
 
 export async function updateDraft(draftId: string, input: unknown) {
 	const draft = getDraftRow(draftId);
-	if (draft.status !== 'draft') throw new ApiError('plan.invalid', 'Plan draft is not editable', 400);
+	if (draft.status !== 'draft')
+		throw new ApiError('plan.invalid', 'Plan draft is not editable', 400);
 	const item = getPlanningItem(String(draft.library_item_id));
 	const library = getLibrary(String(draft.library_path_id));
 	const rows = parseRows(draft.rows_json);
-	const updates = input && typeof input === 'object' && Array.isArray((input as { rows?: unknown }).rows)
-		? ((input as { rows: Partial<DraftRow>[] }).rows)
-		: [];
+	const updates =
+		input && typeof input === 'object' && Array.isArray((input as { rows?: unknown }).rows)
+			? (input as { rows: Partial<DraftRow>[] }).rows
+			: [];
 	const nextRows = await Promise.all(
 		rows.map(async (row) => {
 			const update = updates.find((candidate) => candidate.id === row.id);
@@ -115,7 +129,9 @@ export async function updateDraft(draftId: string, input: unknown) {
 				year: numberOrNull(update.year, row.year),
 				posterPath: nextPosterPath,
 				posterUrl:
-					'posterUrl' in update ? nullableString(update.posterUrl, row.posterUrl) : posterUrl(nextPosterPath),
+					'posterUrl' in update
+						? nullableString(update.posterUrl, row.posterUrl)
+						: posterUrl(nextPosterPath),
 				conflictAction: update.conflictAction === 'overwrite' ? 'overwrite' : null,
 				overwrite: update.conflictAction === 'overwrite'
 			};
@@ -130,7 +146,8 @@ export async function updateDraft(draftId: string, input: unknown) {
 
 export async function submitDraft(draftId: string) {
 	const draft = getDraftRow(draftId);
-	if (draft.status !== 'draft') throw new ApiError('plan.invalid', 'Plan draft has already been submitted', 400);
+	if (draft.status !== 'draft')
+		throw new ApiError('plan.invalid', 'Plan draft has already been submitted', 400);
 	const rows = parseRows(draft.rows_json).filter((row) => row.selected);
 	if (rows.length === 0 || rows.some((row) => row.status === 'invalid')) {
 		throw new ApiError('plan.invalid', 'Plan draft contains invalid selected rows', 400);
@@ -166,10 +183,11 @@ export function getDraft(draftId: string) {
 
 export function getPlan(planId: string) {
 	const plan = getSqlite().prepare('select * from rename_plans where id = ?').get(planId) as
-		| Record<string, unknown>
-		| undefined;
+		Record<string, unknown> | undefined;
 	if (!plan) throw new ApiError('plan.invalid', 'Plan not found', 404);
-	const items = getSqlite().prepare('select * from rename_plan_items where plan_id = ?').all(planId);
+	const items = getSqlite()
+		.prepare('select * from rename_plan_items where plan_id = ?')
+		.all(planId);
 	return {
 		id: String(plan.id),
 		libraryPathId: String(plan.library_path_id),
@@ -194,7 +212,8 @@ async function buildRow(
 	const settings = getSettings();
 	const parsedTv = parseTvName(sourceFilePath);
 	const season = library.mediaType === 'tv' ? (override?.season ?? parsedTv.season ?? 1) : null;
-	const episode = library.mediaType === 'tv' ? (override?.episode ?? parsedTv.episode ?? null) : null;
+	const episode =
+		library.mediaType === 'tv' ? (override?.episode ?? parsedTv.episode ?? null) : null;
 	const status = library.mediaType === 'tv' && !episode ? 'invalid' : 'valid';
 	const media = mediaInfo(item, override);
 	const target =
@@ -213,7 +232,10 @@ async function buildRow(
 					settings
 				)
 			: { targetFilePath: '', targetTopLevelPath: '' };
-	const conflict = checkConflict && target.targetFilePath ? await getClientForSource(library.sourceId).exists(target.targetFilePath) : false;
+	const conflict =
+		checkConflict && target.targetFilePath
+			? await getClientForSource(library.sourceId).exists(target.targetFilePath)
+			: false;
 	const conflictAction = override?.conflictAction === 'overwrite' ? 'overwrite' : null;
 	return {
 		id: override?.id ?? newId(),
@@ -286,8 +308,7 @@ function insertPlanItem(planId: string, itemId: string, row: DraftRow) {
 
 function getPlanningItem(itemId: string) {
 	const item = getSqlite().prepare('select * from library_items where id = ?').get(itemId) as
-		| Record<string, unknown>
-		| undefined;
+		Record<string, unknown> | undefined;
 	if (!item) throw new ApiError('item.not_found', 'Library item not found', 404);
 	if (String(item.status) === 'failed') {
 		const nextStatus = item.source_media_id ? 'identified' : 'pending_review';
@@ -305,9 +326,9 @@ function getPlanningItem(itemId: string) {
 }
 
 function getDraftRow(draftId: string) {
-	const draft = getSqlite().prepare('select * from rename_plan_drafts where id = ?').get(draftId) as
-		| Record<string, string>
-		| undefined;
+	const draft = getSqlite()
+		.prepare('select * from rename_plan_drafts where id = ?')
+		.get(draftId) as Record<string, string> | undefined;
 	if (!draft) throw new ApiError('plan.invalid', 'Plan draft not found', 404);
 	return draft;
 }
@@ -344,9 +365,12 @@ function nullableString(value: unknown, fallback: string | null): string | null 
 function mediaInfo(item: Record<string, unknown>, override?: DraftRow) {
 	const posterPath = override?.posterPath ?? (item.poster_path ? String(item.poster_path) : null);
 	return {
-		sourceMediaId: override?.sourceMediaId ?? (item.source_media_id ? String(item.source_media_id) : null),
+		sourceMediaId:
+			override?.sourceMediaId ?? (item.source_media_id ? String(item.source_media_id) : null),
 		title: override?.title || String(item.title),
-		originalTitle: override?.originalTitle || (item.original_title ? String(item.original_title) : String(item.title)),
+		originalTitle:
+			override?.originalTitle ||
+			(item.original_title ? String(item.original_title) : String(item.title)),
 		year: override?.year ?? (item.year ? Number(item.year) : null),
 		posterPath,
 		posterUrl: override?.posterUrl ?? posterUrl(posterPath)

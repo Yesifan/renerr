@@ -14,14 +14,20 @@
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
-	let refreshedData = $state<{ sources: Source[]; libraries: Library[]; settings: PublicSettings } | null>(null);
-	let workspace = $derived(refreshedData ?? {
-		sources: data.sources,
-		libraries: data.libraries,
-		items: [],
-		tasks: [],
-		settings: data.settings
-	});
+	let refreshedData = $state<{
+		sources: Source[];
+		libraries: Library[];
+		settings: PublicSettings;
+	} | null>(null);
+	let workspace = $derived(
+		refreshedData ?? {
+			sources: data.sources,
+			libraries: data.libraries,
+			items: [],
+			tasks: [],
+			settings: data.settings
+		}
+	);
 	let message = $state('');
 	let busy = $state(false);
 	let addLibraryOpen = $state(false);
@@ -42,7 +48,10 @@
 		credential: ''
 	});
 
-	async function submitAction(action: string, payload: Record<string, string | boolean | undefined>) {
+	async function submitAction(
+		action: string,
+		payload: Record<string, string | boolean | undefined>
+	) {
 		const formData = new FormData();
 		for (const [key, value] of Object.entries(payload)) {
 			if (typeof value !== 'undefined') formData.set(key, String(value));
@@ -216,7 +225,12 @@
 	</SectionPanel>
 
 	<SectionPanel title="文件管理" description="控制整理后的命名和本地元数据文件输出。">
-		<FileManagementSettingsForm bind:namingLanguage bind:metadataEnabled {busy} onSave={saveFileSettings} />
+		<FileManagementSettingsForm
+			bind:namingLanguage
+			bind:metadataEnabled
+			{busy}
+			onSave={saveFileSettings}
+		/>
 	</SectionPanel>
 
 	<SectionPanel title="Library Paths" description="每个路径是一个独立的媒体库管理入口。">
@@ -251,4 +265,10 @@
 	onTest={testLibraryPath}
 />
 
-<SourceDialog bind:open={addSourceOpen} bind:form={sourceForm} {busy} onSave={saveSource} onTest={testSource} />
+<SourceDialog
+	bind:open={addSourceOpen}
+	bind:form={sourceForm}
+	{busy}
+	onSave={saveSource}
+	onTest={testSource}
+/>

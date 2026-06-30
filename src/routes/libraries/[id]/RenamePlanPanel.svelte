@@ -26,7 +26,9 @@
 	const selectedRows = $derived(draft.rows.filter((row) => row.selected));
 	const validSelectedRows = $derived(selectedRows.filter((row) => row.status === 'valid'));
 	const hasInvalidSelectedRows = $derived(selectedRows.some((row) => row.status === 'invalid'));
-	const unresolvedConflicts = $derived(selectedRows.filter((row) => row.conflict && row.conflictAction !== 'overwrite').length);
+	const unresolvedConflicts = $derived(
+		selectedRows.filter((row) => row.conflict && row.conflictAction !== 'overwrite').length
+	);
 
 	function updateSelected(row: RenamePlanDraftRow, checked: boolean | 'indeterminate') {
 		onUpdateRow({ ...row, selected: checked === true });
@@ -80,7 +82,9 @@
 		<Badge variant="outline">共 {draft.rows.length} 个文件</Badge>
 		<Badge variant="outline">已选 {selectedRows.length}</Badge>
 		{#if hasInvalidSelectedRows}
-			<Badge variant="outline" class="border-red-500/30 bg-red-500/15 text-red-300">存在无效行</Badge>
+			<Badge variant="outline" class="border-red-500/30 bg-red-500/15 text-red-300"
+				>存在无效行</Badge
+			>
 		{/if}
 		{#if unresolvedConflicts}
 			<Badge variant="outline" class="border-amber-500/30 bg-amber-500/15 text-amber-300">
@@ -105,7 +109,10 @@
 					{#each draft.rows as row (row.id)}
 						<Table.Row>
 							<Table.Cell>
-								<Checkbox checked={row.selected} onCheckedChange={(checked) => updateSelected(row, checked)} />
+								<Checkbox
+									checked={row.selected}
+									onCheckedChange={(checked) => updateSelected(row, checked)}
+								/>
 							</Table.Cell>
 							<Table.Cell class="max-w-[360px] break-all font-mono text-[11px] text-foreground">
 								<div>{row.sourceFilePath}</div>
@@ -131,7 +138,11 @@
 									<div class="min-w-0 flex-1">
 										<div class="truncate font-medium text-foreground">{row.title}</div>
 										<div class="text-muted-foreground">{row.year ?? '年份未知'}</div>
-										<Button class="mt-2 h-7 px-2 text-xs" variant="outline" onclick={() => openRowSearch(row)}>
+										<Button
+											class="mt-2 h-7 px-2 text-xs"
+											variant="outline"
+											onclick={() => openRowSearch(row)}
+										>
 											搜索 TMDB 修改
 										</Button>
 									</div>
@@ -144,7 +155,9 @@
 												placeholder="输入 title 或 TMDB id"
 												oninput={(event) => (rowQuery = event.currentTarget.value)}
 											/>
-											<Button variant="outline" disabled={rowSearchBusy} onclick={searchForRow}>搜索</Button>
+											<Button variant="outline" disabled={rowSearchBusy} onclick={searchForRow}
+												>搜索</Button
+											>
 										</div>
 										<div class="mt-2 grid gap-2">
 											{#each rowResults as result (result.id)}
@@ -153,7 +166,8 @@
 													class="h-auto justify-start whitespace-normal rounded-md p-2 text-left text-xs"
 													onclick={() => chooseRowMedia(row, result)}
 												>
-													{result.title} {result.year ? `(${result.year})` : ''}
+													{result.title}
+													{result.year ? `(${result.year})` : ''}
 												</Button>
 											{/each}
 										</div>
@@ -206,7 +220,10 @@
 
 		<div class="flex justify-end">
 			<Button
-				disabled={busy || validSelectedRows.length === 0 || hasInvalidSelectedRows || unresolvedConflicts > 0}
+				disabled={busy ||
+					validSelectedRows.length === 0 ||
+					hasInvalidSelectedRows ||
+					unresolvedConflicts > 0}
 				onclick={() => (step = 'confirm')}
 			>
 				下一步
@@ -224,13 +241,22 @@
 			<div class="grid gap-3">
 				{#each validSelectedRows as row (row.id)}
 					<div class="rounded-md border border-border bg-background/55 p-3">
-						<div class="break-all font-mono text-xs font-medium text-foreground">{row.targetFilePath}</div>
-						<div class="mt-2 break-all font-mono text-[11px] text-muted-foreground">from {row.sourceFilePath}</div>
+						<div class="break-all font-mono text-xs font-medium text-foreground">
+							{row.targetFilePath}
+						</div>
+						<div class="mt-2 break-all font-mono text-[11px] text-muted-foreground">
+							from {row.sourceFilePath}
+						</div>
 						{#if row.conflictAction === 'overwrite'}
-							<Badge variant="outline" class="mt-2 border-amber-500/30 bg-amber-500/15 text-amber-300">覆盖冲突</Badge>
+							<Badge
+								variant="outline"
+								class="mt-2 border-amber-500/30 bg-amber-500/15 text-amber-300">覆盖冲突</Badge
+							>
 						{/if}
 						{#if row.sidecars.length}
-							<div class="mt-2 text-[11px] text-muted-foreground">包含 {row.sidecars.length} 个 sidecar</div>
+							<div class="mt-2 text-[11px] text-muted-foreground">
+								包含 {row.sidecars.length} 个 sidecar
+							</div>
 						{/if}
 					</div>
 				{/each}

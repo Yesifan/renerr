@@ -59,8 +59,12 @@ describe('WebDavFileClient', () => {
 		await webdav.moveFile('/quark/待整理影视/旧剧/01.mp4', '/quark/待整理影视/新剧/01.mp4');
 
 		expect(client.moveFile).toHaveBeenCalledTimes(1);
-		expect(client.moveFile).toHaveBeenCalledWith('/quark/待整理影视/旧剧/01.mp4', '/quark/待整理影视/新剧/01.mp4', {
-			overwrite: false
-		});
+		expect(client.moveFile).toHaveBeenCalledWith(
+			'/quark/待整理影视/旧剧/01.mp4',
+			'/quark/待整理影视/新剧/01.mp4',
+			{
+				overwrite: false
+			}
+		);
 	});
 });

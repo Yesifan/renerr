@@ -13,7 +13,11 @@ async function freshDb() {
 	return getSqlite();
 }
 
-function jsonEvent(input: unknown, url = 'http://localhost/api/test', params: Record<string, string> = {}) {
+function jsonEvent(
+	input: unknown,
+	url = 'http://localhost/api/test',
+	params: Record<string, string> = {}
+) {
 	return {
 		params,
 		request: new Request(url, {
@@ -115,10 +119,14 @@ describe('route and action boundaries', () => {
 		const sourcesApi = await import('../../routes/api/sources/+server');
 		const librariesApi = await import('../../routes/api/libraries/+server');
 
-		expect(await responseJson(await settingsApi.PUT(jsonEvent({ unknown: true }) as never))).toMatchObject({
+		expect(
+			await responseJson(await settingsApi.PUT(jsonEvent({ unknown: true }) as never))
+		).toMatchObject({
 			code: 'validation_failed'
 		});
-		expect(await responseJson(await sourcesApi.POST(jsonEvent({ name: 'dav', url: 'bad' }) as never))).toMatchObject({
+		expect(
+			await responseJson(await sourcesApi.POST(jsonEvent({ name: 'dav', url: 'bad' }) as never))
+		).toMatchObject({
 			code: 'validation_failed'
 		});
 		expect(
@@ -157,7 +165,9 @@ describe('route and action boundaries', () => {
 		expect(await responseJson(invalid)).toMatchObject({ code: 'validation_failed' });
 
 		const valid = await libraryApi.PUT(
-			jsonEvent({ autoOrganize: true }, 'http://localhost/api/libraries/id', { id: library.id }) as never
+			jsonEvent({ autoOrganize: true }, 'http://localhost/api/libraries/id', {
+				id: library.id
+			}) as never
 		);
 		expect(await responseJson(valid)).toMatchObject({ autoOrganize: true });
 		db.close();

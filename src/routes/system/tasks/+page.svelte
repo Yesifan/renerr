@@ -58,7 +58,9 @@
 					<Table.Row>
 						<Table.Cell class="font-medium text-foreground">{task.type}</Table.Cell>
 						<Table.Cell>
-							<Badge variant="outline" class={statusClass(task.state)}>{statusText(task.state)}</Badge>
+							<Badge variant="outline" class={statusClass(task.state)}
+								>{statusText(task.state)}</Badge
+							>
 						</Table.Cell>
 						<Table.Cell>{task.createdAt}</Table.Cell>
 						<Table.Cell class="text-destructive">{task.error || ''}</Table.Cell>

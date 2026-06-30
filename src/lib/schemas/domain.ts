@@ -7,7 +7,13 @@ export const itemStatusSchema = z.enum([
 	'identified',
 	'organized'
 ]);
-export const taskStateSchema = z.enum(['queued', 'running', 'succeeded', 'partially_failed', 'failed']);
+export const taskStateSchema = z.enum([
+	'queued',
+	'running',
+	'succeeded',
+	'partially_failed',
+	'failed'
+]);
 
 export const sourceNameSchema = z
 	.string()

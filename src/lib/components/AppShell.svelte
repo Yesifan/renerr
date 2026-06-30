@@ -52,11 +52,20 @@
 
 <Sidebar.Provider>
 	<div class="grid min-h-svh w-full grid-rows-[auto_1fr] bg-background text-foreground">
-		<header class="sticky top-0 z-20 flex min-h-14 flex-wrap items-center gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:h-14 md:flex-nowrap md:gap-8 md:px-6 md:py-0">
-			<a class="text-xl font-semibold tracking-wide text-foreground" href={resolve('/')}>{m.app_title()}</a>
-			<label class="flex min-w-0 flex-1 items-center gap-3 text-sm text-muted-foreground md:max-w-[340px]">
+		<header
+			class="sticky top-0 z-20 flex min-h-14 flex-wrap items-center gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:h-14 md:flex-nowrap md:gap-8 md:px-6 md:py-0"
+		>
+			<a class="text-xl font-semibold tracking-wide text-foreground" href={resolve('/')}
+				>{m.app_title()}</a
+			>
+			<label
+				class="flex min-w-0 flex-1 items-center gap-3 text-sm text-muted-foreground md:max-w-[340px]"
+			>
 				<span class="text-base">⌕</span>
-				<Input class="border-0 bg-transparent px-0 focus-visible:ring-0" placeholder={m.search_placeholder()} />
+				<Input
+					class="border-0 bg-transparent px-0 focus-visible:ring-0"
+					placeholder={m.search_placeholder()}
+				/>
 			</label>
 			<div class="flex items-center gap-2 text-sm text-muted-foreground md:ml-auto">
 				<span>{m.language_label()}</span>
@@ -93,7 +102,9 @@
 									<Sidebar.MenuSubItem>
 										<Sidebar.MenuSubButton isActive={isActive(`/libraries/${library.id}`)}>
 											{#snippet child({ props })}
-												<a href={resolve(`/libraries/${library.id}`)} {...props}>{libraryLabel(library)}</a>
+												<a href={resolve(`/libraries/${library.id}`)} {...props}
+													>{libraryLabel(library)}</a
+												>
 											{/snippet}
 										</Sidebar.MenuSubButton>
 									</Sidebar.MenuSubItem>

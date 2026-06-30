@@ -22,9 +22,10 @@ export function log(level: LogLevel, component: string, message: string, context
 
 export function listLogs(limit = 200) {
 	return (
-		getSqlite()
-		.prepare('select * from logs order by time desc limit ?')
-			.all(limit) as Record<string, unknown>[]
+		getSqlite().prepare('select * from logs order by time desc limit ?').all(limit) as Record<
+			string,
+			unknown
+		>[]
 	).map(mapRow);
 }
 

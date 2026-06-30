@@ -1,6 +1,11 @@
 import { publicSettings } from '$lib/server/services/settings';
 import { saveSettings } from '$lib/server/services/settings';
-import { createLibrary, listLibraries, listSources, upsertSource } from '$lib/server/services/sources';
+import {
+	createLibrary,
+	listLibraries,
+	listSources,
+	upsertSource
+} from '$lib/server/services/sources';
 import {
 	libraryPathInputSchema,
 	settingsPatchSchema,
@@ -51,7 +56,9 @@ export const actions = {
 	saveTmdb: async ({ request }) => {
 		try {
 			const formData = await request.formData();
-			saveSettings(settingsPatchSchema.parse({ tmdbApiKey: optionalString(formData, 'tmdbApiKey') }));
+			saveSettings(
+				settingsPatchSchema.parse({ tmdbApiKey: optionalString(formData, 'tmdbApiKey') })
+			);
 			return { ok: true };
 		} catch (error) {
 			return actionError(error);

@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { Checkbox as CheckboxPrimitive } from "bits-ui";
-	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
-	import Check from "lucide-svelte/icons/check";
-	import Minus from "lucide-svelte/icons/minus";
+	import { Checkbox as CheckboxPrimitive } from 'bits-ui';
+	import { cn, type WithoutChildrenOrChild } from '$lib/utils.js';
+	import Check from 'lucide-svelte/icons/check';
+	import Minus from 'lucide-svelte/icons/minus';
 
 	let {
 		ref = $bindable(null),
@@ -27,10 +27,10 @@
 	bind:ref
 	data-slot="checkbox"
 	class={cn(
-		"border-border bg-input data-checked:bg-primary data-checked:text-primary-foreground data-checked:border-primary aria-invalid:aria-checked:border-primary aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 flex size-4 items-center justify-center rounded-[6px] border transition-shadow group-has-disabled/field:opacity-50 focus-visible:ring-[3px] aria-invalid:ring-[3px] peer relative shrink-0 outline-none after:absolute after:-inset-x-3 after:-inset-y-2 disabled:cursor-not-allowed disabled:opacity-50",
+		'border-border bg-input data-checked:bg-primary data-checked:text-primary-foreground data-checked:border-primary aria-invalid:aria-checked:border-primary aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 flex size-4 items-center justify-center rounded-[6px] border transition-shadow group-has-disabled/field:opacity-50 focus-visible:ring-[3px] aria-invalid:ring-[3px] peer relative shrink-0 outline-none after:absolute after:-inset-x-3 after:-inset-y-2 disabled:cursor-not-allowed disabled:opacity-50',
 		className
 	)}
-		bind:checked={getChecked, setChecked}
+	bind:checked={getChecked, setChecked}
 	bind:indeterminate
 	{...restProps}
 >
@@ -38,12 +38,12 @@
 		<div
 			data-slot="checkbox-indicator"
 			class="[&>svg]:size-3.5 grid place-content-center text-current transition-none"
-			>
-				{#if checked}
-					<Check />
-				{:else if indeterminate}
-					<Minus />
-				{/if}
-			</div>
+		>
+			{#if checked}
+				<Check />
+			{:else if indeterminate}
+				<Minus />
+			{/if}
+		</div>
 	{/snippet}
 </CheckboxPrimitive.Root>

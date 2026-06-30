@@ -19,7 +19,10 @@ function setupProxyDispatcher() {
 }
 
 export function getDataDir() {
-	const dir = process.env.RENERR_DATA_DIR || process.env.RENARR_DATA_DIR || join(process.cwd(), '.renarr-data');
+	const dir =
+		process.env.RENERR_DATA_DIR ||
+		process.env.RENARR_DATA_DIR ||
+		join(process.cwd(), '.renarr-data');
 	mkdirSync(dir, { recursive: true });
 	return dir;
 }

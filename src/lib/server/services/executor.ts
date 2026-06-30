@@ -16,14 +16,16 @@ type ItemExecutionSummary = {
 
 export async function executeRenamePlan(taskId: string, planId: string) {
 	const db = getSqlite();
-	const plan = db.prepare('select * from rename_plans where id = ?').get(planId) as Record<string, unknown>;
+	const plan = db.prepare('select * from rename_plans where id = ?').get(planId) as Record<
+		string,
+		unknown
+	>;
 	if (!plan) throw new Error('Plan not found');
 	const library = getLibrary(String(plan.library_path_id));
 	const client = getClientForSource(library.sourceId);
-	const rows = db.prepare('select * from rename_plan_items where plan_id = ?').all(planId) as Record<
-		string,
-		unknown
-	>[];
+	const rows = db
+		.prepare('select * from rename_plan_items where plan_id = ?')
+		.all(planId) as Record<string, unknown>[];
 	let ok = 0;
 	let failed = 0;
 	const itemSummaries = new Map<string, ItemExecutionSummary>();
@@ -38,7 +40,11 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 			if (!(await client.exists(source))) {
 				const intermediate = intermediateMovePath(source, target);
 				if (intermediate && (await client.exists(intermediate))) {
-					warnings.push({ type: 'resumed_intermediate_move', originalSource: source, intermediate });
+					warnings.push({
+						type: 'resumed_intermediate_move',
+						originalSource: source,
+						intermediate
+					});
 					source = intermediate;
 				} else {
 					throw new Error('Source file no longer exists');
@@ -52,9 +58,13 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 			for (const sidecar of sidecars) {
 				try {
 					if (await client.exists(sidecar)) {
-						await client.moveFile(sidecar, joinRemote(dirname(target), sidecar.split('/').at(-1) || ''), {
-							overwrite
-						});
+						await client.moveFile(
+							sidecar,
+							joinRemote(dirname(target), sidecar.split('/').at(-1) || ''),
+							{
+								overwrite
+							}
+						);
 					}
 				} catch (error) {
 					warnings.push({ type: 'sidecar_move_failed', sidecar, error: String(error) });
@@ -72,7 +82,15 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 				`insert into execution_records
 				 (id, task_id, plan_item_id, source_path, target_path, status, context_json, created_at)
 				 values (?, ?, ?, ?, ?, 'succeeded', ?, ?)`
-			).run(newId(), taskId, row.id, source, target, JSON.stringify({ warnings, overwritten: Boolean(overwrite) }), nowIso());
+			).run(
+				newId(),
+				taskId,
+				row.id,
+				source,
+				target,
+				JSON.stringify({ warnings, overwritten: Boolean(overwrite) }),
+				nowIso()
+			);
 			ok += 1;
 			const summary = summaryFor(itemSummaries, itemId);
 			summary.ok += 1;
@@ -83,7 +101,16 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 				`insert into execution_records
 				 (id, task_id, plan_item_id, source_path, target_path, status, error, context_json, created_at)
 			 values (?, ?, ?, ?, ?, 'failed', ?, ?, ?)`
-			).run(newId(), taskId, row.id, source, target, String(error), JSON.stringify({ error: String(error) }), nowIso());
+			).run(
+				newId(),
+				taskId,
+				row.id,
+				source,
+				target,
+				String(error),
+				JSON.stringify({ error: String(error) }),
+				nowIso()
+			);
 			failed += 1;
 			summaryFor(itemSummaries, itemId).failed += 1;
 		}
@@ -106,7 +133,11 @@ function summaryFor(summaries: Map<string, ItemExecutionSummary>, itemId: string
 	return summary;
 }
 
-function updateItemAfterExecution(itemId: string, mediaType: 'movie' | 'tv', summary: ItemExecutionSummary) {
+function updateItemAfterExecution(
+	itemId: string,
+	mediaType: 'movie' | 'tv',
+	summary: ItemExecutionSummary
+) {
 	const db = getSqlite();
 	const updatedAt = nowIso();
 	const summaryJson = JSON.stringify({ ok: summary.ok, failed: summary.failed });
@@ -117,7 +148,9 @@ function updateItemAfterExecution(itemId: string, mediaType: 'movie' | 'tv', sum
 		).run({ id: itemId, summary: summaryJson, updatedAt });
 		return;
 	}
-	const compliant = summary.succeededTargets.filter((target) => isCompliantVideo(mediaType, target)).length;
+	const compliant = summary.succeededTargets.filter((target) =>
+		isCompliantVideo(mediaType, target)
+	).length;
 	db.prepare(
 		`update library_items set status = 'organized',
 		 video_file_count = @videos,
@@ -143,7 +176,10 @@ function intermediateMovePath(from: string, to: string) {
 	return joinRemote(dirname(to), basename(from));
 }
 
-async function discoverExistingSidecars(client: { exists(path: string): Promise<boolean> }, sourceFilePath: string) {
+async function discoverExistingSidecars(
+	client: { exists(path: string): Promise<boolean> },
+	sourceFilePath: string
+) {
 	const base = stripExt(sourceFilePath);
 	const found: string[] = [];
 	for (const extension of sidecarExtensions) {

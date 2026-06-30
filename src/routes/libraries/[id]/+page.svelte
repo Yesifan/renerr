@@ -60,13 +60,19 @@
 	<title>{library ? libraryLabel(library) : m.nav_media_library()} - Renarr</title>
 </svelte:head>
 
-<PageHeader title={m.nav_media_library()} description={library ? libraryLabel(library) : '正在加载'} {message}>
+<PageHeader
+	title={m.nav_media_library()}
+	description={library ? libraryLabel(library) : '正在加载'}
+	{message}
+>
 	{#snippet actions()}
 		{#if showTaskLink}
 			<Button href={resolve('/system/tasks')} variant="link">{m.nav_tasks()}</Button>
 		{/if}
 		<Button disabled={busy()} onclick={() => itemsQuery.refetch()} variant="outline">刷新</Button>
-		<Button disabled={busy() || !library} onclick={() => scanLibraryMutation.mutate()}>{m.action_scan()}</Button>
+		<Button disabled={busy() || !library} onclick={() => scanLibraryMutation.mutate()}
+			>{m.action_scan()}</Button
+		>
 	{/snippet}
 </PageHeader>
 

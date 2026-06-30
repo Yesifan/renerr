@@ -11,7 +11,9 @@
 	let { item, library }: Props = $props();
 
 	const displayTitle = $derived(item.title || item.topLevelPath);
-	const fullPath = $derived(`${library.path.replace(/\/$/, '')}/${item.topLevelPath.replace(/^\//, '')}`);
+	const fullPath = $derived(
+		`${library.path.replace(/\/$/, '')}/${item.topLevelPath.replace(/^\//, '')}`
+	);
 	const stats = $derived([
 		{ label: '视频', value: item.videoFileCount },
 		{ label: '符合', value: item.compliantFileCount ?? 0 },
@@ -22,17 +24,27 @@
 <section class="-mx-4 border-y border-border bg-background md:-mx-6 lg:-mx-8">
 	<div class="relative overflow-hidden">
 		{#if item.posterUrl}
-			<img class="absolute inset-0 h-full w-full scale-105 object-cover opacity-20 blur-sm" src={item.posterUrl} alt="" />
+			<img
+				class="absolute inset-0 h-full w-full scale-105 object-cover opacity-20 blur-sm"
+				src={item.posterUrl}
+				alt=""
+			/>
 		{/if}
-		<div class="absolute inset-0 bg-gradient-to-r from-background via-background/95 to-background/70"></div>
+		<div
+			class="absolute inset-0 bg-gradient-to-r from-background via-background/95 to-background/70"
+		></div>
 
-		<div class="relative grid gap-8 px-4 py-6 md:grid-cols-[180px_minmax(0,1fr)] md:px-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)] lg:px-8">
+		<div
+			class="relative grid gap-8 px-4 py-6 md:grid-cols-[180px_minmax(0,1fr)] md:px-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)] lg:px-8"
+		>
 			<div class="max-w-[220px]">
 				<div class="aspect-[2/3] overflow-hidden rounded-md bg-muted">
 					{#if item.posterUrl}
 						<img class="h-full w-full object-cover" src={item.posterUrl} alt={displayTitle} />
 					{:else}
-						<div class="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
+						<div
+							class="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground"
+						>
 							{item.kind === 'folder' ? '文件夹' : '视频文件'}
 						</div>
 					{/if}
@@ -51,11 +63,15 @@
 				</div>
 
 				<div class="min-w-0">
-					<h1 class="max-w-[18ch] text-3xl font-semibold leading-tight text-foreground text-balance md:text-5xl">
+					<h1
+						class="max-w-[18ch] text-3xl font-semibold leading-tight text-foreground text-balance md:text-5xl"
+					>
 						{displayTitle}
 					</h1>
 					{#if item.title && item.topLevelPath !== item.title}
-						<p class="mt-3 break-all font-mono text-xs text-muted-foreground">{item.topLevelPath}</p>
+						<p class="mt-3 break-all font-mono text-xs text-muted-foreground">
+							{item.topLevelPath}
+						</p>
 					{/if}
 				</div>
 

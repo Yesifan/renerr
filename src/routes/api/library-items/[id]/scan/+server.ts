@@ -8,9 +8,14 @@ export function POST(event: RequestEvent) {
 		const item = getItem(event.params.id);
 		if (item.status !== 'organized' && item.status !== 'unidentified') {
 			return apiError(
-				new ApiError('item.scan_not_allowed', 'Library item cannot be scanned in its current status', 400, {
-					status: item.status
-				})
+				new ApiError(
+					'item.scan_not_allowed',
+					'Library item cannot be scanned in its current status',
+					400,
+					{
+						status: item.status
+					}
+				)
 			);
 		}
 		return ok(enqueueTask('scan_library_item', { libraryItemId: event.params.id }));

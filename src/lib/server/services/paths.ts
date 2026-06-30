@@ -1,6 +1,15 @@
 import path from 'node:path/posix';
 
-export const videoExtensions = new Set(['.mkv', '.mp4', '.avi', '.mov', '.m4v', '.ts', '.m2ts', '.wmv']);
+export const videoExtensions = new Set([
+	'.mkv',
+	'.mp4',
+	'.avi',
+	'.mov',
+	'.m4v',
+	'.ts',
+	'.m2ts',
+	'.wmv'
+]);
 export const sidecarExtensions = new Set(['.srt', '.ass', '.ssa', '.vtt', '.sub', '.nfo']);
 
 export function normalizeRemotePath(input: string) {

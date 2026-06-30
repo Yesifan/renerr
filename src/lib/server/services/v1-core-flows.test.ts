@@ -146,7 +146,9 @@ describe('V1 core flows', () => {
 
 		expect(
 			db
-				.prepare('select top_level_path, status, source_media_id, title, year from library_items where top_level_path = ?')
+				.prepare(
+					'select top_level_path, status, source_media_id, title, year from library_items where top_level_path = ?'
+				)
 				.get('Show1 (2026)')
 		).toEqual({
 			top_level_path: 'Show1 (2026)',
@@ -214,7 +216,9 @@ describe('V1 core flows', () => {
 
 		await expect(scanLibraryItem('item1')).rejects.toMatchObject({ code: 'item.scan_not_allowed' });
 
-		expect(db.prepare('select status, review_reason from library_items where id = ?').get('item1')).toEqual({
+		expect(
+			db.prepare('select status, review_reason from library_items where id = ?').get('item1')
+		).toEqual({
 			status: 'pending_review',
 			review_reason: 'legacy_failed'
 		});
@@ -262,7 +266,9 @@ describe('V1 core flows', () => {
 			mode: 'manual',
 			status: 'confirmed'
 		});
-		expect(db.prepare('select count(*) as count from rename_plan_items').get()).toEqual({ count: 1 });
+		expect(db.prepare('select count(*) as count from rename_plan_items').get()).toEqual({
+			count: 1
+		});
 		db.close();
 	});
 
@@ -319,7 +325,9 @@ describe('V1 core flows', () => {
 			targetTopLevelPath: 'Other Show (2025)'
 		});
 		expect(updated.rows[0].targetFilePath).toContain('/tv/Other Show (2025)/');
-		expect(db.prepare('select source_media_id, title from library_items where id = ?').get('item1')).toEqual({
+		expect(
+			db.prepare('select source_media_id, title from library_items where id = ?').get('item1')
+		).toEqual({
 			source_media_id: '100',
 			title: 'Show1'
 		});
@@ -539,7 +547,9 @@ describe('V1 core flows', () => {
 
 		await expect(executeRenamePlan('task1', 'plan1')).resolves.toBe('partially_failed');
 		expect(moves).toEqual(['/movies/source1.mkv->/movies/Movie (2024)/Movie.2024.mkv']);
-		expect(db.prepare('select count(*) as count from execution_records').get()).toEqual({ count: 2 });
+		expect(db.prepare('select count(*) as count from execution_records').get()).toEqual({
+			count: 2
+		});
 		expect(db.prepare('select status from library_items where id = ?').get('item1')).toEqual({
 			status: 'identified'
 		});
@@ -561,7 +571,9 @@ describe('V1 core flows', () => {
 				updatedAt: ''
 			}),
 			getClientForSource: () => ({
-				exists: vi.fn(async (path: string) => path === '/movies/source1.mkv' || path.includes('/Movie.2024.mkv')),
+				exists: vi.fn(
+					async (path: string) => path === '/movies/source1.mkv' || path.includes('/Movie.2024.mkv')
+				),
 				ensureDirectory: vi.fn(async () => undefined),
 				moveFile,
 				writeTextFile: vi.fn(async () => undefined)
@@ -654,7 +666,9 @@ describe('V1 core flows', () => {
 		const { executeRenamePlan } = await import('./executor');
 
 		await expect(executeRenamePlan('task1', 'plan1')).resolves.toBe('succeeded');
-		const record = db.prepare('select context_json from execution_records where status = ?').get('succeeded') as {
+		const record = db
+			.prepare('select context_json from execution_records where status = ?')
+			.get('succeeded') as {
 			context_json: string;
 		};
 		expect(JSON.parse(record.context_json).warnings).toHaveLength(2);
@@ -724,7 +738,9 @@ describe('V1 core flows', () => {
 			'/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4',
 			{ overwrite: false }
 		);
-		const record = db.prepare('select context_json from execution_records where status = ?').get('succeeded') as {
+		const record = db
+			.prepare('select context_json from execution_records where status = ?')
+			.get('succeeded') as {
 			context_json: string;
 		};
 		expect(JSON.parse(record.context_json).warnings).toContainEqual({

@@ -1,212 +1,275 @@
 {
-  "schemaVersion": 2,
-  "generatedAt": "2026-06-29T00:00:00+08:00",
-  "title": "Design System: Renarr",
-  "extensions": {
-    "colorMeta": {
-      "background": {
-        "role": "neutral",
-        "displayName": "background",
-        "canonical": "#0d1017",
-        "tonalRamp": ["#05070b", "#0d1017", "#111827", "#1f2937", "#334155", "#64748b", "#cbd5e1", "#f8fafc"]
-      },
-      "foreground": {
-        "role": "neutral",
-        "displayName": "foreground",
-        "canonical": "#e7eaf0",
-        "tonalRamp": ["#111827", "#1f2937", "#475569", "#64748b", "#94a3b8", "#cbd5e1", "#e7eaf0", "#f8fafc"]
-      },
-      "card": {
-        "role": "neutral",
-        "displayName": "card",
-        "canonical": "#0f172a",
-        "tonalRamp": ["#020617", "#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#cbd5e1", "#f8fafc"]
-      },
-      "muted": {
-        "role": "neutral",
-        "displayName": "muted",
-        "canonical": "#1e293b",
-        "tonalRamp": ["#020617", "#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#cbd5e1", "#f8fafc"]
-      },
-      "primary": {
-        "role": "primary",
-        "displayName": "primary",
-        "canonical": "#22d3ee",
-        "tonalRamp": ["#083344", "#155e75", "#0e7490", "#0891b2", "#06b6d4", "#22d3ee", "#67e8f9", "#cffafe"]
-      },
-      "border": {
-        "role": "neutral",
-        "displayName": "border",
-        "canonical": "#334155",
-        "tonalRamp": ["#020617", "#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#cbd5e1", "#f8fafc"]
-      },
-      "destructive": {
-        "role": "tertiary",
-        "displayName": "destructive",
-        "canonical": "#f87171",
-        "tonalRamp": ["#450a0a", "#7f1d1d", "#991b1b", "#dc2626", "#ef4444", "#f87171", "#fca5a5", "#fee2e2"]
-      }
-    },
-    "typographyMeta": {
-      "display": {
-        "displayName": "Display",
-        "purpose": "Page titles only; never a marketing hero scale."
-      },
-      "title": {
-        "displayName": "Title",
-        "purpose": "Panel, card, and dialog titles."
-      },
-      "body": {
-        "displayName": "Body",
-        "purpose": "Forms, tables, explanatory text, and normal UI copy."
-      },
-      "label": {
-        "displayName": "Label",
-        "purpose": "Badges, compact metadata, and small navigation labels."
-      }
-    },
-    "shadows": [
-      {
-        "name": "surface-ring",
-        "value": "ring-1 ring-foreground/10",
-        "purpose": "Default boundary for cards and dialogs."
-      },
-      {
-        "name": "popover-shadow",
-        "value": "shadow-2xl",
-        "purpose": "Only for floating select content, tooltip content, and menus."
-      },
-      {
-        "name": "sheet-shadow",
-        "value": "shadow-lg",
-        "purpose": "Only for sheet-style overlays."
-      }
-    ],
-    "motion": [
-      {
-        "name": "state-fast",
-        "value": "100ms ease-out",
-        "purpose": "Dialog, select, and tooltip fade/zoom state changes."
-      },
-      {
-        "name": "state-standard",
-        "value": "200ms ease-in-out",
-        "purpose": "Sheet and sidebar size transitions."
-      }
-    ],
-    "breakpoints": [
-      {
-        "name": "md",
-        "value": "768px"
-      },
-      {
-        "name": "xl",
-        "value": "1280px"
-      }
-    ]
-  },
-  "components": [
-    {
-      "name": "Primary Button",
-      "kind": "button",
-      "refersTo": "button-primary",
-      "description": "Main action button for save, scan, submit, and add operations.",
-      "html": "<button class=\"ds-btn-primary\">扫描</button>",
-      "css": ".ds-btn-primary { height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; border-radius: 32px; background: var(--color-primary); color: var(--color-primary-foreground); padding: 8px 16px; font: 500 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; transition: background-color 150ms ease-out, transform 150ms ease-out, box-shadow 150ms ease-out; } .ds-btn-primary:hover { background: color-mix(in srgb, var(--color-primary) 80%, transparent); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ring) 50%, transparent); }"
-    },
-    {
-      "name": "Outline Button",
-      "kind": "button",
-      "refersTo": "button-outline",
-      "description": "Secondary action button for refresh, test connection, and lower-risk operations.",
-      "html": "<button class=\"ds-btn-outline\">刷新</button>",
-      "css": ".ds-btn-outline { height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--color-border); border-radius: 32px; background: color-mix(in srgb, var(--color-input) 30%, transparent); color: var(--color-foreground); padding: 8px 16px; font: 500 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; transition: background-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-btn-outline:hover { background: color-mix(in srgb, var(--color-input) 50%, transparent); } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ring) 50%, transparent); }"
-    },
-    {
-      "name": "Input",
-      "kind": "input",
-      "refersTo": "input",
-      "description": "Pill-shaped text field for settings, search, and connection forms.",
-      "html": "<label class=\"ds-field\"><span>TMDB API Key</span><input class=\"ds-input\" placeholder=\"输入新的 TMDB API Key\" /></label>",
-      "css": ".ds-field { display: grid; gap: 8px; color: var(--color-foreground); font: 500 14px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-input { width: 100%; height: 36px; border: 1px solid var(--color-border); border-radius: 32px; background: color-mix(in srgb, var(--color-input) 30%, transparent); color: var(--color-foreground); padding: 4px 12px; font: 400 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; transition: border-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-input::placeholder { color: var(--color-muted-foreground); } .ds-input:focus-visible { outline: none; border-color: var(--color-ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ring) 50%, transparent); }"
-    },
-    {
-      "name": "Section Panel",
-      "kind": "card",
-      "refersTo": "card",
-      "description": "Standard settings and management container with a separated header and action area.",
-      "html": "<section class=\"ds-panel\"><header class=\"ds-panel-header\"><div><h2>媒体源</h2><p>管理 WebDAV 来源和认证信息。</p></div><button class=\"ds-panel-action\">添加媒体源</button></header><div class=\"ds-panel-body\">内容区域</div></section>",
-      "css": ".ds-panel { overflow: hidden; border-radius: 20px; background: var(--color-card); color: var(--color-card-foreground); box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-foreground) 10%, transparent); font: 400 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-panel-header { display: flex; align-items: start; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--color-border); padding: 24px; } .ds-panel-header h2 { margin: 0; font-size: 16px; font-weight: 500; line-height: 1.5; } .ds-panel-header p { margin: 4px 0 0; color: var(--color-muted-foreground); font-size: 14px; } .ds-panel-body { padding: 24px; } .ds-panel-action { border: 0; border-radius: 32px; background: var(--color-primary); color: var(--color-primary-foreground); padding: 8px 14px; font-weight: 500; }"
-    },
-    {
-      "name": "Status Badge",
-      "kind": "chip",
-      "refersTo": "badge-outline",
-      "description": "Compact semantic status marker for media items, tasks, and review states.",
-      "html": "<span class=\"ds-badge ds-badge-warning\">待人工确认</span>",
-      "css": ".ds-badge { display: inline-flex; height: 20px; width: fit-content; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; border-radius: 999px; border: 1px solid var(--color-border); padding: 2px 8px; font: 500 12px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-badge-warning { border-color: rgb(245 158 11 / 0.3); background: rgb(245 158 11 / 0.15); color: #fcd34d; } .ds-badge-success { border-color: rgb(16 185 129 / 0.3); background: rgb(16 185 129 / 0.15); color: #6ee7b7; } .ds-badge-error { border-color: rgb(239 68 68 / 0.3); background: rgb(239 68 68 / 0.15); color: #fca5a5; }"
-    },
-    {
-      "name": "Media Item Card",
-      "kind": "card",
-      "refersTo": "media-item-card",
-      "description": "Poster-led card for top-level movie or TV folders; the main place where Renarr can feel more like a media library.",
-      "html": "<article class=\"ds-media-card\"><div class=\"ds-poster\">海报</div><div class=\"ds-media-body\"><h3>示例剧集</h3><p>2026 · 12 个视频</p><span class=\"ds-media-badge\">已整理</span></div></article>",
-      "css": ".ds-media-card { overflow: hidden; border-radius: 20px; background: var(--color-card); color: var(--color-card-foreground); box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-foreground) 10%, transparent); } .ds-media-card:focus-within, .ds-media-card:hover { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 50%, transparent); } .ds-poster { aspect-ratio: 2 / 3; display: flex; align-items: center; justify-content: center; background: var(--color-muted); color: var(--color-muted-foreground); font: 400 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-media-body { display: grid; gap: 8px; padding: 12px; } .ds-media-body h3 { margin: 0; color: var(--color-foreground); font-size: 14px; font-weight: 500; line-height: 1.35; } .ds-media-body p { margin: 0; color: var(--color-muted-foreground); font-size: 12px; } .ds-media-badge { width: fit-content; border-radius: 999px; border: 1px solid rgb(16 185 129 / 0.3); background: rgb(16 185 129 / 0.15); color: #6ee7b7; padding: 2px 8px; font-size: 12px; font-weight: 500; }"
-    },
-    {
-      "name": "Sidebar Navigation",
-      "kind": "nav",
-      "refersTo": "sidebar",
-      "description": "Persistent left navigation for media libraries, settings, tasks, and logs.",
-      "html": "<nav class=\"ds-sidebar\"><a class=\"ds-nav-active\">媒体库</a><a>媒体设置</a><a>任务队列</a></nav>",
-      "css": ".ds-sidebar { width: 260px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid var(--color-sidebar-border); background: var(--color-sidebar); color: var(--color-sidebar-foreground); padding: 20px 12px; font: 400 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-sidebar a { border-radius: 8px; color: inherit; padding: 8px 12px; text-decoration: none; transition: background-color 150ms ease-out, color 150ms ease-out; } .ds-sidebar a:hover, .ds-sidebar .ds-nav-active { background: var(--color-sidebar-accent); color: var(--color-sidebar-accent-foreground); font-weight: 500; }"
-    }
-  ],
-  "narrative": {
-    "northStar": "暗室编目台",
-    "overview": "Renarr 的界面应像一张深色暗室里的编目台：用户面对的是远端片库的真实目录、状态、任务和风险动作，而不是消费型媒体首页。系统可以有影视资料感，尤其在海报卡、片名、年份、剧集信息和文件摘要上，但视觉重心始终是整理、核对和确认。整体气质是深色、稳定、资料化、可长期使用。",
-    "keyCharacteristics": [
-      "深色管理台，面板分层清楚，长时间使用不刺眼。",
-      "影视资料馆感来自真实媒体内容，不来自花哨装饰。",
-      "左侧导航、设置表单、任务表、日志表和媒体卡使用同一组件词汇。",
-      "操作要能追溯到后端状态，危险动作必须让用户看清影响范围。",
-      "密度服务于重复管理任务，避免首页式大留白和营销式叙事。"
-    ],
-    "rules": [
-      {
-        "name": "The ≤10% Accent Rule",
-        "body": "`primary` 在单个屏幕中的面积应保持在 10% 以下。它用于行动和状态，不用于装饰。",
-        "section": "colors"
-      },
-      {
-        "name": "The Real Status Rule",
-        "body": "状态色必须对应真实状态：失败、待审核、运行、成功、待整理。不要为了“丰富页面”添加没有业务含义的颜色。",
-        "section": "colors"
-      },
-      {
-        "name": "The No Hero Type Rule",
-        "body": "Renarr 是管理台，不是宣传页。任何超过 `text-2xl` 的 UI 标题都必须有明确的信息架构理由。",
-        "section": "typography"
-      },
-      {
-        "name": "The Tonal Layer Rule",
-        "body": "常驻内容用背景深浅和 1px 边界分层，禁止用宽模糊投影制造卡片感。",
-        "section": "elevation"
-      }
-    ],
-    "dos": [
-      "Do 使用 shadcn-svelte 组件作为基础控件，局部视觉差异通过页面级 class 或项目组件封装。",
-      "Do 让 `primary` 只出现在主要行动、焦点、选中和重要链接上。",
-      "Do 让海报、片名、年份和文件统计承担影视资料馆感。",
-      "Do 在列表里用 Switch、Checkbox、Badge 和 Button 表达真实可操作状态。"
-    ],
-    "donts": [
-      "Don't 把 Renarr 做成以播放和推荐为中心的流媒体娱乐应用。",
-      "Don't 做营销介绍、巨幅 hero、装饰卡片或首页式价值主张区。",
-      "Don't 使用炫技动效、强烈渐变、gradient text、glassmorphism 或无业务含义的装饰色。",
-      "Don't 把添加表单、配置入口和危险操作长期堆在内容卡片里。",
-      "Don't 做只在前端临时切换、没有真实后端持久化的假控制台。"
-    ]
-  }
+	"schemaVersion": 2,
+	"generatedAt": "2026-06-29T00:00:00+08:00",
+	"title": "Design System: Renarr",
+	"extensions": {
+		"colorMeta": {
+			"background": {
+				"role": "neutral",
+				"displayName": "background",
+				"canonical": "#0d1017",
+				"tonalRamp": [
+					"#05070b",
+					"#0d1017",
+					"#111827",
+					"#1f2937",
+					"#334155",
+					"#64748b",
+					"#cbd5e1",
+					"#f8fafc"
+				]
+			},
+			"foreground": {
+				"role": "neutral",
+				"displayName": "foreground",
+				"canonical": "#e7eaf0",
+				"tonalRamp": [
+					"#111827",
+					"#1f2937",
+					"#475569",
+					"#64748b",
+					"#94a3b8",
+					"#cbd5e1",
+					"#e7eaf0",
+					"#f8fafc"
+				]
+			},
+			"card": {
+				"role": "neutral",
+				"displayName": "card",
+				"canonical": "#0f172a",
+				"tonalRamp": [
+					"#020617",
+					"#0f172a",
+					"#1e293b",
+					"#334155",
+					"#475569",
+					"#64748b",
+					"#cbd5e1",
+					"#f8fafc"
+				]
+			},
+			"muted": {
+				"role": "neutral",
+				"displayName": "muted",
+				"canonical": "#1e293b",
+				"tonalRamp": [
+					"#020617",
+					"#0f172a",
+					"#1e293b",
+					"#334155",
+					"#475569",
+					"#64748b",
+					"#cbd5e1",
+					"#f8fafc"
+				]
+			},
+			"primary": {
+				"role": "primary",
+				"displayName": "primary",
+				"canonical": "#22d3ee",
+				"tonalRamp": [
+					"#083344",
+					"#155e75",
+					"#0e7490",
+					"#0891b2",
+					"#06b6d4",
+					"#22d3ee",
+					"#67e8f9",
+					"#cffafe"
+				]
+			},
+			"border": {
+				"role": "neutral",
+				"displayName": "border",
+				"canonical": "#334155",
+				"tonalRamp": [
+					"#020617",
+					"#0f172a",
+					"#1e293b",
+					"#334155",
+					"#475569",
+					"#64748b",
+					"#cbd5e1",
+					"#f8fafc"
+				]
+			},
+			"destructive": {
+				"role": "tertiary",
+				"displayName": "destructive",
+				"canonical": "#f87171",
+				"tonalRamp": [
+					"#450a0a",
+					"#7f1d1d",
+					"#991b1b",
+					"#dc2626",
+					"#ef4444",
+					"#f87171",
+					"#fca5a5",
+					"#fee2e2"
+				]
+			}
+		},
+		"typographyMeta": {
+			"display": {
+				"displayName": "Display",
+				"purpose": "Page titles only; never a marketing hero scale."
+			},
+			"title": {
+				"displayName": "Title",
+				"purpose": "Panel, card, and dialog titles."
+			},
+			"body": {
+				"displayName": "Body",
+				"purpose": "Forms, tables, explanatory text, and normal UI copy."
+			},
+			"label": {
+				"displayName": "Label",
+				"purpose": "Badges, compact metadata, and small navigation labels."
+			}
+		},
+		"shadows": [
+			{
+				"name": "surface-ring",
+				"value": "ring-1 ring-foreground/10",
+				"purpose": "Default boundary for cards and dialogs."
+			},
+			{
+				"name": "popover-shadow",
+				"value": "shadow-2xl",
+				"purpose": "Only for floating select content, tooltip content, and menus."
+			},
+			{
+				"name": "sheet-shadow",
+				"value": "shadow-lg",
+				"purpose": "Only for sheet-style overlays."
+			}
+		],
+		"motion": [
+			{
+				"name": "state-fast",
+				"value": "100ms ease-out",
+				"purpose": "Dialog, select, and tooltip fade/zoom state changes."
+			},
+			{
+				"name": "state-standard",
+				"value": "200ms ease-in-out",
+				"purpose": "Sheet and sidebar size transitions."
+			}
+		],
+		"breakpoints": [
+			{
+				"name": "md",
+				"value": "768px"
+			},
+			{
+				"name": "xl",
+				"value": "1280px"
+			}
+		]
+	},
+	"components": [
+		{
+			"name": "Primary Button",
+			"kind": "button",
+			"refersTo": "button-primary",
+			"description": "Main action button for save, scan, submit, and add operations.",
+			"html": "<button class=\"ds-btn-primary\">扫描</button>",
+			"css": ".ds-btn-primary { height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; border-radius: 32px; background: var(--color-primary); color: var(--color-primary-foreground); padding: 8px 16px; font: 500 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; transition: background-color 150ms ease-out, transform 150ms ease-out, box-shadow 150ms ease-out; } .ds-btn-primary:hover { background: color-mix(in srgb, var(--color-primary) 80%, transparent); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ring) 50%, transparent); }"
+		},
+		{
+			"name": "Outline Button",
+			"kind": "button",
+			"refersTo": "button-outline",
+			"description": "Secondary action button for refresh, test connection, and lower-risk operations.",
+			"html": "<button class=\"ds-btn-outline\">刷新</button>",
+			"css": ".ds-btn-outline { height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--color-border); border-radius: 32px; background: color-mix(in srgb, var(--color-input) 30%, transparent); color: var(--color-foreground); padding: 8px 16px; font: 500 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; transition: background-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-btn-outline:hover { background: color-mix(in srgb, var(--color-input) 50%, transparent); } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ring) 50%, transparent); }"
+		},
+		{
+			"name": "Input",
+			"kind": "input",
+			"refersTo": "input",
+			"description": "Pill-shaped text field for settings, search, and connection forms.",
+			"html": "<label class=\"ds-field\"><span>TMDB API Key</span><input class=\"ds-input\" placeholder=\"输入新的 TMDB API Key\" /></label>",
+			"css": ".ds-field { display: grid; gap: 8px; color: var(--color-foreground); font: 500 14px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-input { width: 100%; height: 36px; border: 1px solid var(--color-border); border-radius: 32px; background: color-mix(in srgb, var(--color-input) 30%, transparent); color: var(--color-foreground); padding: 4px 12px; font: 400 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; transition: border-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-input::placeholder { color: var(--color-muted-foreground); } .ds-input:focus-visible { outline: none; border-color: var(--color-ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ring) 50%, transparent); }"
+		},
+		{
+			"name": "Section Panel",
+			"kind": "card",
+			"refersTo": "card",
+			"description": "Standard settings and management container with a separated header and action area.",
+			"html": "<section class=\"ds-panel\"><header class=\"ds-panel-header\"><div><h2>媒体源</h2><p>管理 WebDAV 来源和认证信息。</p></div><button class=\"ds-panel-action\">添加媒体源</button></header><div class=\"ds-panel-body\">内容区域</div></section>",
+			"css": ".ds-panel { overflow: hidden; border-radius: 20px; background: var(--color-card); color: var(--color-card-foreground); box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-foreground) 10%, transparent); font: 400 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-panel-header { display: flex; align-items: start; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--color-border); padding: 24px; } .ds-panel-header h2 { margin: 0; font-size: 16px; font-weight: 500; line-height: 1.5; } .ds-panel-header p { margin: 4px 0 0; color: var(--color-muted-foreground); font-size: 14px; } .ds-panel-body { padding: 24px; } .ds-panel-action { border: 0; border-radius: 32px; background: var(--color-primary); color: var(--color-primary-foreground); padding: 8px 14px; font-weight: 500; }"
+		},
+		{
+			"name": "Status Badge",
+			"kind": "chip",
+			"refersTo": "badge-outline",
+			"description": "Compact semantic status marker for media items, tasks, and review states.",
+			"html": "<span class=\"ds-badge ds-badge-warning\">待人工确认</span>",
+			"css": ".ds-badge { display: inline-flex; height: 20px; width: fit-content; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; border-radius: 999px; border: 1px solid var(--color-border); padding: 2px 8px; font: 500 12px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-badge-warning { border-color: rgb(245 158 11 / 0.3); background: rgb(245 158 11 / 0.15); color: #fcd34d; } .ds-badge-success { border-color: rgb(16 185 129 / 0.3); background: rgb(16 185 129 / 0.15); color: #6ee7b7; } .ds-badge-error { border-color: rgb(239 68 68 / 0.3); background: rgb(239 68 68 / 0.15); color: #fca5a5; }"
+		},
+		{
+			"name": "Media Item Card",
+			"kind": "card",
+			"refersTo": "media-item-card",
+			"description": "Poster-led card for top-level movie or TV folders; the main place where Renarr can feel more like a media library.",
+			"html": "<article class=\"ds-media-card\"><div class=\"ds-poster\">海报</div><div class=\"ds-media-body\"><h3>示例剧集</h3><p>2026 · 12 个视频</p><span class=\"ds-media-badge\">已整理</span></div></article>",
+			"css": ".ds-media-card { overflow: hidden; border-radius: 20px; background: var(--color-card); color: var(--color-card-foreground); box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-foreground) 10%, transparent); } .ds-media-card:focus-within, .ds-media-card:hover { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 50%, transparent); } .ds-poster { aspect-ratio: 2 / 3; display: flex; align-items: center; justify-content: center; background: var(--color-muted); color: var(--color-muted-foreground); font: 400 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-media-body { display: grid; gap: 8px; padding: 12px; } .ds-media-body h3 { margin: 0; color: var(--color-foreground); font-size: 14px; font-weight: 500; line-height: 1.35; } .ds-media-body p { margin: 0; color: var(--color-muted-foreground); font-size: 12px; } .ds-media-badge { width: fit-content; border-radius: 999px; border: 1px solid rgb(16 185 129 / 0.3); background: rgb(16 185 129 / 0.15); color: #6ee7b7; padding: 2px 8px; font-size: 12px; font-weight: 500; }"
+		},
+		{
+			"name": "Sidebar Navigation",
+			"kind": "nav",
+			"refersTo": "sidebar",
+			"description": "Persistent left navigation for media libraries, settings, tasks, and logs.",
+			"html": "<nav class=\"ds-sidebar\"><a class=\"ds-nav-active\">媒体库</a><a>媒体设置</a><a>任务队列</a></nav>",
+			"css": ".ds-sidebar { width: 260px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid var(--color-sidebar-border); background: var(--color-sidebar); color: var(--color-sidebar-foreground); padding: 20px 12px; font: 400 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-sidebar a { border-radius: 8px; color: inherit; padding: 8px 12px; text-decoration: none; transition: background-color 150ms ease-out, color 150ms ease-out; } .ds-sidebar a:hover, .ds-sidebar .ds-nav-active { background: var(--color-sidebar-accent); color: var(--color-sidebar-accent-foreground); font-weight: 500; }"
+		}
+	],
+	"narrative": {
+		"northStar": "暗室编目台",
+		"overview": "Renarr 的界面应像一张深色暗室里的编目台：用户面对的是远端片库的真实目录、状态、任务和风险动作，而不是消费型媒体首页。系统可以有影视资料感，尤其在海报卡、片名、年份、剧集信息和文件摘要上，但视觉重心始终是整理、核对和确认。整体气质是深色、稳定、资料化、可长期使用。",
+		"keyCharacteristics": [
+			"深色管理台，面板分层清楚，长时间使用不刺眼。",
+			"影视资料馆感来自真实媒体内容，不来自花哨装饰。",
+			"左侧导航、设置表单、任务表、日志表和媒体卡使用同一组件词汇。",
+			"操作要能追溯到后端状态，危险动作必须让用户看清影响范围。",
+			"密度服务于重复管理任务，避免首页式大留白和营销式叙事。"
+		],
+		"rules": [
+			{
+				"name": "The ≤10% Accent Rule",
+				"body": "`primary` 在单个屏幕中的面积应保持在 10% 以下。它用于行动和状态，不用于装饰。",
+				"section": "colors"
+			},
+			{
+				"name": "The Real Status Rule",
+				"body": "状态色必须对应真实状态：失败、待审核、运行、成功、待整理。不要为了“丰富页面”添加没有业务含义的颜色。",
+				"section": "colors"
+			},
+			{
+				"name": "The No Hero Type Rule",
+				"body": "Renarr 是管理台，不是宣传页。任何超过 `text-2xl` 的 UI 标题都必须有明确的信息架构理由。",
+				"section": "typography"
+			},
+			{
+				"name": "The Tonal Layer Rule",
+				"body": "常驻内容用背景深浅和 1px 边界分层，禁止用宽模糊投影制造卡片感。",
+				"section": "elevation"
+			}
+		],
+		"dos": [
+			"Do 使用 shadcn-svelte 组件作为基础控件，局部视觉差异通过页面级 class 或项目组件封装。",
+			"Do 让 `primary` 只出现在主要行动、焦点、选中和重要链接上。",
+			"Do 让海报、片名、年份和文件统计承担影视资料馆感。",
+			"Do 在列表里用 Switch、Checkbox、Badge 和 Button 表达真实可操作状态。"
+		],
+		"donts": [
+			"Don't 把 Renarr 做成以播放和推荐为中心的流媒体娱乐应用。",
+			"Don't 做营销介绍、巨幅 hero、装饰卡片或首页式价值主张区。",
+			"Don't 使用炫技动效、强烈渐变、gradient text、glassmorphism 或无业务含义的装饰色。",
+			"Don't 把添加表单、配置入口和危险操作长期堆在内容卡片里。",
+			"Don't 做只在前端临时切换、没有真实后端持久化的假控制台。"
+		]
+	}
 }

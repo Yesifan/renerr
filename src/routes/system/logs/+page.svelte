@@ -69,7 +69,11 @@
 					<Table.Row>
 						<Table.Cell>{entry.time}</Table.Cell>
 						<Table.Cell>
-							<Badge variant="outline" class={statusClass(entry.level === 'error' ? 'failed' : entry.level)}>{entry.level}</Badge>
+							<Badge
+								variant="outline"
+								class={statusClass(entry.level === 'error' ? 'failed' : entry.level)}
+								>{entry.level}</Badge
+							>
 						</Table.Cell>
 						<Table.Cell class="font-medium text-foreground">{entry.component}</Table.Cell>
 						<Table.Cell>{entry.message}</Table.Cell>

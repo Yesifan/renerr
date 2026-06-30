@@ -10,7 +10,8 @@ export class WebDavFileClient implements FileClient {
 	}
 
 	async listDirectory(path: string): Promise<FileEntry[]> {
-		const result = (await this.client.getDirectoryContents(path)) as FileStat[] | { data: FileStat[] };
+		const result = (await this.client.getDirectoryContents(path)) as
+			FileStat[] | { data: FileStat[] };
 		const entries = Array.isArray(result) ? result : result.data;
 		return (entries as FileStat[]).map((entry) => ({
 			basename: entry.basename,

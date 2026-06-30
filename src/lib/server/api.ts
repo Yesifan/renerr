@@ -39,7 +39,9 @@ export function apiError(error: unknown) {
 			{
 				code: 'validation_failed',
 				message: 'Validation failed',
-				context: { issues: error.issues.map((issue) => ({ path: issue.path, message: issue.message })) }
+				context: {
+					issues: error.issues.map((issue) => ({ path: issue.path, message: issue.message }))
+				}
 			},
 			{ status: 400 }
 		);

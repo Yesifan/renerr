@@ -44,7 +44,9 @@
 						</label>
 					</Table.Cell>
 					<Table.Cell>
-						<Button variant="link" href={resolve(`/libraries/${library.id}`)} class="h-auto px-0">打开</Button>
+						<Button variant="link" href={resolve(`/libraries/${library.id}`)} class="h-auto px-0"
+							>打开</Button
+						>
 					</Table.Cell>
 				</Table.Row>
 			{/each}

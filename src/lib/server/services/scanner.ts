@@ -16,7 +16,9 @@ export async function scanLibraryPath(libraryPathId: string) {
 	const client = getClientForSource(library.sourceId);
 	const root = normalizeRemotePath(library.path);
 	const entries = await client.listDirectory(root);
-	const topEntries = entries.filter((entry) => entry.type === 'directory' || isVideoPath(entry.basename));
+	const topEntries = entries.filter(
+		(entry) => entry.type === 'directory' || isVideoPath(entry.basename)
+	);
 	const seen = new Set(topEntries.map((entry) => entry.basename));
 	const db = getSqlite();
 	const now = nowIso();
@@ -41,7 +43,10 @@ export async function scanLibraryPath(libraryPathId: string) {
 			});
 		}
 		inheritIdentityFromRenameTarget(id);
-		const item = db.prepare('select * from library_items where id = ?').get(id) as Record<string, unknown>;
+		const item = db.prepare('select * from library_items where id = ?').get(id) as Record<
+			string,
+			unknown
+		>;
 		const status = normalizeLegacyItemStatus(item);
 		if (status === 'pending_review') continue;
 		if (status === 'identified') continue;
@@ -64,7 +69,10 @@ export async function scanLibraryPath(libraryPathId: string) {
 					error: String(error)
 				});
 			}
-			const refreshed = db.prepare('select * from library_items where id = ?').get(id) as Record<string, unknown>;
+			const refreshed = db.prepare('select * from library_items where id = ?').get(id) as Record<
+				string,
+				unknown
+			>;
 			if (library.autoOrganize && String(refreshed.status) === 'identified') {
 				const plan = await createPlanForItem(id, 'auto');
 				enqueueTask('execute_rename_plan', { planId: plan.id });
@@ -85,7 +93,8 @@ export async function scanLibraryPath(libraryPathId: string) {
 
 function inheritIdentityFromRenameTarget(itemId: string) {
 	const db = getSqlite();
-	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<string, unknown> | undefined;
+	const item = db.prepare('select * from library_items where id = ?').get(itemId) as
+		Record<string, unknown> | undefined;
 	if (!item || item.source_media_id) return;
 	const source = db
 		.prepare(
@@ -118,24 +127,36 @@ function inheritIdentityFromRenameTarget(itemId: string) {
 		sourceMediaType: source.source_media_type ? String(source.source_media_type) : null,
 		sourceMediaId: String(source.source_media_id),
 		title: source.title ? String(source.title) : null,
-		originalTitle: source.original_title ? String(source.original_title) : source.title ? String(source.title) : null,
+		originalTitle: source.original_title
+			? String(source.original_title)
+			: source.title
+				? String(source.title)
+				: null,
 		year: source.year ? Number(source.year) : null,
 		posterPath: source.poster_path ? String(source.poster_path) : null,
 		confidence: source.confidence ? String(source.confidence) : 'manual',
-		candidates: source.recognition_candidates_json ? String(source.recognition_candidates_json) : '[]',
+		candidates: source.recognition_candidates_json
+			? String(source.recognition_candidates_json)
+			: '[]',
 		now: nowIso()
 	});
 }
 
 export async function scanLibraryItem(itemId: string) {
 	const db = getSqlite();
-	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<string, unknown> | undefined;
+	const item = db.prepare('select * from library_items where id = ?').get(itemId) as
+		Record<string, unknown> | undefined;
 	if (!item) throw new ApiError('item.not_found', 'Library item not found', 404);
 	const status = normalizeLegacyItemStatus(item);
 	if (status !== 'organized' && status !== 'unidentified') {
-		throw new ApiError('item.scan_not_allowed', 'Library item cannot be scanned in its current status', 400, {
-			status
-		});
+		throw new ApiError(
+			'item.scan_not_allowed',
+			'Library item cannot be scanned in its current status',
+			400,
+			{
+				status
+			}
+		);
 	}
 	const videos = await refreshItemStats(itemId);
 	if (status === 'organized') {
@@ -160,7 +181,10 @@ export async function scanLibraryItem(itemId: string) {
 
 export async function refreshItemStats(itemId: string) {
 	const db = getSqlite();
-	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<string, unknown>;
+	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<
+		string,
+		unknown
+	>;
 	const library = getLibrary(String(item.library_path_id));
 	const client = getClientForSource(library.sourceId);
 	const itemRoot = joinRemote(library.path, String(item.top_level_path));
@@ -175,13 +199,22 @@ export async function refreshItemStats(itemId: string) {
 		 compliant_file_count = @compliant,
 		 non_compliant_file_count = @nonCompliant,
 		 last_scanned_at = @now, updated_at = @now where id = @id`
-	).run({ id: itemId, videos: videos.length, compliant, nonCompliant: videos.length - compliant, now });
+	).run({
+		id: itemId,
+		videos: videos.length,
+		compliant,
+		nonCompliant: videos.length - compliant,
+		now
+	});
 	return videos;
 }
 
 export async function recognizeItem(itemId: string) {
 	const db = getSqlite();
-	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<string, unknown>;
+	const item = db.prepare('select * from library_items where id = ?').get(itemId) as Record<
+		string,
+		unknown
+	>;
 	const library = getLibrary(String(item.library_path_id));
 	const parsed =
 		library.mediaType === 'movie'

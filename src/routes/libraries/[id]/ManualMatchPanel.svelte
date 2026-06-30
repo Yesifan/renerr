@@ -14,7 +14,8 @@
 		onChoose: (item: Item, result: TmdbResult) => void | Promise<void>;
 	};
 
-	let { item, query, results, searchLabel, busy, onQueryChange, onSearch, onChoose }: Props = $props();
+	let { item, query, results, searchLabel, busy, onQueryChange, onSearch, onChoose }: Props =
+		$props();
 </script>
 
 <div class="flex flex-col gap-4">

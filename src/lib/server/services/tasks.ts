@@ -16,7 +16,7 @@ export function enqueueTask(type: string, payload: unknown) {
 export function listTasks(limit = 100) {
 	return (
 		getSqlite()
-		.prepare('select * from tasks order by created_at desc limit ?')
+			.prepare('select * from tasks order by created_at desc limit ?')
 			.all(limit) as Record<string, unknown>[]
 	).map(mapTask);
 }
@@ -38,9 +38,9 @@ export function failRunningTasksOnStartup() {
 
 export function claimNextTask() {
 	const db = getSqlite();
-	const task = db.prepare("select * from tasks where state = 'queued' order by created_at limit 1").get() as
-		| Record<string, unknown>
-		| undefined;
+	const task = db
+		.prepare("select * from tasks where state = 'queued' order by created_at limit 1")
+		.get() as Record<string, unknown> | undefined;
 	if (!task) return null;
 	const result = db
 		.prepare("update tasks set state = 'running', started_at = ? where id = ? and state = 'queued'")
@@ -48,7 +48,11 @@ export function claimNextTask() {
 	return result.changes ? mapTask({ ...task, state: 'running', started_at: nowIso() }) : null;
 }
 
-export function finishTask(id: string, state: 'succeeded' | 'partially_failed' | 'failed', error?: string) {
+export function finishTask(
+	id: string,
+	state: 'succeeded' | 'partially_failed' | 'failed',
+	error?: string
+) {
 	getSqlite()
 		.prepare('update tasks set state = ?, error = ?, finished_at = ? where id = ?')
 		.run(state, error || null, nowIso(), id);

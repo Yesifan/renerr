@@ -12,14 +12,7 @@
 		testLabel: string;
 	};
 
-	let {
-		tmdbApiKey = $bindable(),
-		currentKey,
-		busy,
-		onSave,
-		onTest,
-		testLabel
-	}: Props = $props();
+	let { tmdbApiKey = $bindable(), currentKey, busy, onSave, onTest, testLabel }: Props = $props();
 </script>
 
 <Field.Group>

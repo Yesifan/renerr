@@ -6,14 +6,13 @@ import { parseMovieName, parseTvName } from './parser';
 import { ApiError } from '$lib/server/api';
 
 export function listItems(libraryPathId?: string) {
-	const rows = (libraryPathId
-		? getSqlite()
-				.prepare('select * from library_items where library_path_id = ? order by top_level_path')
-				.all(libraryPathId)
-		: getSqlite().prepare('select * from library_items order by updated_at desc').all()) as Record<
-		string,
-		unknown
-	>[];
+	const rows = (
+		libraryPathId
+			? getSqlite()
+					.prepare('select * from library_items where library_path_id = ? order by top_level_path')
+					.all(libraryPathId)
+			: getSqlite().prepare('select * from library_items order by updated_at desc').all()
+	) as Record<string, unknown>[];
 	return rows.map(mapItem);
 }
 
@@ -25,22 +24,29 @@ export function getItem(id: string) {
 
 export async function getItemDetail(id: string) {
 	const row = getSqlite().prepare('select * from library_items where id = ?').get(id) as
-		| Record<string, unknown>
-		| undefined;
+		Record<string, unknown> | undefined;
 	if (!row) throw new ApiError('item.not_found', 'Library item not found', 404);
 	const item = mapItem(row);
 	const library = getLibrary(String(row.library_path_id));
 	const client = getClientForSource(library.sourceId);
 	const root = joinRemote(library.path, String(row.top_level_path));
-	const files = String(row.kind) === 'file'
-		? [{
-				path: root,
-				basename: String(row.top_level_path),
-				type: 'file' as const,
-				video: isVideoPath(String(row.top_level_path)),
-				compliance: classifyVideo(library.mediaType, String(row.top_level_path))
-			}]
-		: await listDetailEntries(client, root, library.mediaType === 'movie' ? 1 : 2, library.mediaType);
+	const files =
+		String(row.kind) === 'file'
+			? [
+					{
+						path: root,
+						basename: String(row.top_level_path),
+						type: 'file' as const,
+						video: isVideoPath(String(row.top_level_path)),
+						compliance: classifyVideo(library.mediaType, String(row.top_level_path))
+					}
+				]
+			: await listDetailEntries(
+					client,
+					root,
+					library.mediaType === 'movie' ? 1 : 2,
+					library.mediaType
+				);
 	const executionRecords = getSqlite()
 		.prepare(
 			`select er.*
@@ -56,7 +62,9 @@ export async function getItemDetail(id: string) {
 			sourcePath: String((record as Record<string, unknown>).source_path),
 			targetPath: String((record as Record<string, unknown>).target_path),
 			status: String((record as Record<string, unknown>).status),
-			error: (record as Record<string, unknown>).error ? String((record as Record<string, unknown>).error) : null,
+			error: (record as Record<string, unknown>).error
+				? String((record as Record<string, unknown>).error)
+				: null,
 			context: JSON.parse(String((record as Record<string, unknown>).context_json || '{}')),
 			createdAt: String((record as Record<string, unknown>).created_at)
 		}));
@@ -146,7 +154,11 @@ export function mapItem(row: Record<string, unknown>) {
 }
 
 async function listDetailEntries(
-	client: { listDirectory(path: string): Promise<{ basename: string; type: 'file' | 'directory'; size?: number; lastmod?: string }[]> },
+	client: {
+		listDirectory(
+			path: string
+		): Promise<{ basename: string; type: 'file' | 'directory'; size?: number; lastmod?: string }[]>;
+	},
 	root: string,
 	depth: number,
 	mediaType: 'movie' | 'tv'
@@ -172,9 +184,12 @@ async function listDetailEntries(
 				size: child.size,
 				lastmod: child.lastmod,
 				video,
-				compliance: video ? classifyVideo(mediaType, child.basename) : { state: 'not_video' as const }
+				compliance: video
+					? classifyVideo(mediaType, child.basename)
+					: { state: 'not_video' as const }
 			});
-			if (child.type === 'directory' && remainingDepth > 0) await walk(fullPath, remainingDepth - 1);
+			if (child.type === 'directory' && remainingDepth > 0)
+				await walk(fullPath, remainingDepth - 1);
 		}
 	}
 	await walk(root, depth);

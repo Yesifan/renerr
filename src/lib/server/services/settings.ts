@@ -3,9 +3,9 @@ import { nowIso } from '$lib/server/time';
 import { settingsPatchSchema, settingsSchema, type AppSettings } from '$lib/schemas/domain';
 
 export function getSettings(): AppSettings {
-	const row = getSqlite().prepare('select value_json from app_settings where id = ?').get('global') as
-		| { value_json: string }
-		| undefined;
+	const row = getSqlite()
+		.prepare('select value_json from app_settings where id = ?')
+		.get('global') as { value_json: string } | undefined;
 	return settingsSchema.parse(row ? JSON.parse(row.value_json) : {});
 }
 
@@ -41,6 +41,8 @@ export function publicSettings() {
 	const settings = getSettings();
 	return {
 		...settings,
-		tmdbApiKey: settings.tmdbApiKey ? `${settings.tmdbApiKey.slice(0, 4)}...${settings.tmdbApiKey.slice(-4)}` : ''
+		tmdbApiKey: settings.tmdbApiKey
+			? `${settings.tmdbApiKey.slice(0, 4)}...${settings.tmdbApiKey.slice(-4)}`
+			: ''
 	};
 }

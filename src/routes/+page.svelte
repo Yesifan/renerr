@@ -27,7 +27,8 @@
 			<Card.Root class="h-full transition hover:ring-primary/40">
 				<Card.Header>
 					<Card.Title>{libraryLabel(library)}</Card.Title>
-					<Card.Description>{library.mediaType === 'tv' ? '电视剧' : '电影'}媒体库</Card.Description>
+					<Card.Description>{library.mediaType === 'tv' ? '电视剧' : '电影'}媒体库</Card.Description
+					>
 				</Card.Header>
 				<Card.Content class="flex flex-col gap-2 text-sm text-muted-foreground">
 					<div>{itemCount(library.id)} 个一级条目</div>

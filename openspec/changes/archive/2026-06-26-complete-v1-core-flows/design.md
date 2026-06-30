@@ -91,9 +91,9 @@ Renarr V1 当前是一个 SvelteKit 单项目，已经有 SQLite/Drizzle 风格 
 
 10. **V1 只提供默认深色媒体管理工具风。**
 
-   UI 默认深色，使用 shadcn-svelte/Tailwind 语义 tokens 组织颜色，不提供主题切换入口。视觉接近 Sonarr/Radarr 类运维管理工具：深色侧栏、中性深灰主内容、海报墙突出 poster、状态色克制，避免营销式浅色 SaaS dashboard 或大面积彩色渐变。
+UI 默认深色，使用 shadcn-svelte/Tailwind 语义 tokens 组织颜色，不提供主题切换入口。视觉接近 Sonarr/Radarr 类运维管理工具：深色侧栏、中性深灰主内容、海报墙突出 poster、状态色克制，避免营销式浅色 SaaS dashboard 或大面积彩色渐变。
 
-   备选方案：V1 同时做浅色/深色主题。双主题会扩大每个页面、状态色、表格、dialog 和海报占位的 QA 面，当前阶段收益不足。
+备选方案：V1 同时做浅色/深色主题。双主题会扩大每个页面、状态色、表格、dialog 和海报占位的 QA 面，当前阶段收益不足。
 
 ## Risks / Trade-offs
 

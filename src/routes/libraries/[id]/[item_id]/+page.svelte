@@ -7,12 +7,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { messages as m } from '$lib/i18n';
-	import type {
-		Item,
-		RenamePlanDraft,
-		RenamePlanDraftRow,
-		TmdbResult
-	} from '$lib/schemas/domain';
+	import type { Item, RenamePlanDraft, RenamePlanDraftRow, TmdbResult } from '$lib/schemas/domain';
 	import type { PageProps } from './$types';
 	import ItemDetailPanel from '../ItemDetailPanel.svelte';
 	import ManualMatchPanel from '../ManualMatchPanel.svelte';
@@ -38,7 +33,9 @@
 
 	const item = $derived(recognizedItem ?? data.item);
 	const library = $derived(data.library);
-	const manualResults = $derived(searchResults.length ? searchResults : item.recognitionCandidates || []);
+	const manualResults = $derived(
+		searchResults.length ? searchResults : item.recognitionCandidates || []
+	);
 
 	const scanItemMutation = createMutation(() => ({
 		mutationFn: (target: Item) => post(`/api/library-items/${target.id}/scan`),
@@ -147,9 +144,11 @@
 	}
 
 	function canCreatePlan(target: Item) {
-		return target.status === 'identified' || (target.status === 'organized' && (target.nonCompliantFileCount ?? 0) > 0);
+		return (
+			target.status === 'identified' ||
+			(target.status === 'organized' && (target.nonCompliantFileCount ?? 0) > 0)
+		);
 	}
-
 </script>
 
 <svelte:head>
@@ -159,7 +158,10 @@
 <div class="flex flex-col gap-5">
 	<header class="flex flex-wrap items-center justify-between gap-3">
 		<div class="min-w-0">
-			<a class="text-sm text-muted-foreground hover:text-foreground" href={resolve('/libraries/[id]', { id: params.id })}>
+			<a
+				class="text-sm text-muted-foreground hover:text-foreground"
+				href={resolve('/libraries/[id]', { id: params.id })}
+			>
 				{libraryLabel(library)}
 			</a>
 			{#if message}
@@ -167,25 +169,27 @@
 			{/if}
 		</div>
 		<div class="flex flex-wrap items-center justify-end gap-2">
-		<Button href={resolve('/libraries/[id]', { id: params.id })} variant="outline">返回列表</Button>
-		{#if showTaskLink}
-			<Button href={resolve('/system/tasks')} variant="link">{m.nav_tasks()}</Button>
-		{/if}
-		{#if canScanItem(item)}
-			<Button disabled={busy()} onclick={() => scanItemMutation.mutate(item)} variant="outline">
-				{m.action_scan()}
-			</Button>
-		{/if}
-		{#if canManualMatch(item)}
-			<Button disabled={busy()} onclick={() => (manualDialogOpen = true)} variant="outline">
-				{m.action_manual_match()}
-			</Button>
-		{/if}
-		{#if canCreatePlan(item)}
-			<Button disabled={busy()} onclick={() => createDraftMutation.mutate(item)}>
-				{m.action_view_plan()}
-			</Button>
-		{/if}
+			<Button href={resolve('/libraries/[id]', { id: params.id })} variant="outline"
+				>返回列表</Button
+			>
+			{#if showTaskLink}
+				<Button href={resolve('/system/tasks')} variant="link">{m.nav_tasks()}</Button>
+			{/if}
+			{#if canScanItem(item)}
+				<Button disabled={busy()} onclick={() => scanItemMutation.mutate(item)} variant="outline">
+					{m.action_scan()}
+				</Button>
+			{/if}
+			{#if canManualMatch(item)}
+				<Button disabled={busy()} onclick={() => (manualDialogOpen = true)} variant="outline">
+					{m.action_manual_match()}
+				</Button>
+			{/if}
+			{#if canCreatePlan(item)}
+				<Button disabled={busy()} onclick={() => createDraftMutation.mutate(item)}>
+					{m.action_view_plan()}
+				</Button>
+			{/if}
 		</div>
 	</header>
 
@@ -212,10 +216,14 @@
 </Dialog.Root>
 
 <Dialog.Root bind:open={planDialogOpen}>
-	<Dialog.Content class="max-h-[92vh] overflow-auto rounded-lg sm:max-w-[min(1180px,calc(100%-2rem))]">
+	<Dialog.Content
+		class="max-h-[92vh] overflow-auto rounded-lg sm:max-w-[min(1180px,calc(100%-2rem))]"
+	>
 		<Dialog.Header>
 			<Dialog.Title>整理计划</Dialog.Title>
-			<Dialog.Description>先核对每行影视信息、季集和冲突处理，再确认最终目标完整路径。</Dialog.Description>
+			<Dialog.Description
+				>先核对每行影视信息、季集和冲突处理，再确认最终目标完整路径。</Dialog.Description
+			>
 		</Dialog.Header>
 		{#if draftQuery.data}
 			<RenamePlanPanel
@@ -227,7 +235,9 @@
 				onSearchMedia={searchMedia}
 			/>
 		{:else}
-			<div class="rounded-md border border-dashed border-border p-6 text-sm text-muted-foreground">正在生成整理计划...</div>
+			<div class="rounded-md border border-dashed border-border p-6 text-sm text-muted-foreground">
+				正在生成整理计划...
+			</div>
 		{/if}
 	</Dialog.Content>
 </Dialog.Root>

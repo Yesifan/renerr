@@ -13,10 +13,19 @@ export type TmdbResult = {
 const defaultBaseUrl = 'https://api.themoviedb.org/3';
 
 function tmdbBaseUrl() {
-	return process.env.RENARR_TMDB_BASE_URL || process.env.RENERR_TMDB_BASE_URL || process.env.TMDB_BASE_URL || defaultBaseUrl;
+	return (
+		process.env.RENARR_TMDB_BASE_URL ||
+		process.env.RENERR_TMDB_BASE_URL ||
+		process.env.TMDB_BASE_URL ||
+		defaultBaseUrl
+	);
 }
 
-export async function searchTmdb(mediaType: 'movie' | 'tv', query: string, apiKey?: string): Promise<TmdbResult[]> {
+export async function searchTmdb(
+	mediaType: 'movie' | 'tv',
+	query: string,
+	apiKey?: string
+): Promise<TmdbResult[]> {
 	const settings = getSettings();
 	const key = apiKey ?? settings.tmdbApiKey;
 	if (!query.trim()) return [];
@@ -63,7 +72,12 @@ export async function testTmdbConnection(input: { apiKey?: string } = {}) {
 }
 
 function tmdbError(status: number, endpoint: string) {
-	const code = status === 401 || status === 403 ? 'tmdb.unauthorized' : status === 429 ? 'tmdb.rate_limited' : 'tmdb.connection_failed';
+	const code =
+		status === 401 || status === 403
+			? 'tmdb.unauthorized'
+			: status === 429
+				? 'tmdb.rate_limited'
+				: 'tmdb.connection_failed';
 	const message =
 		status === 401 || status === 403
 			? 'TMDB API key is invalid'

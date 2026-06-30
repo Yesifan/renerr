@@ -47,9 +47,13 @@ export function targetPathFor(
 }
 
 export function metadataTargets(targetFilePath: string, mediaType: MediaType) {
-	const topFolder = mediaType === 'movie' ? dirname(targetFilePath) : dirname(dirname(targetFilePath));
+	const topFolder =
+		mediaType === 'movie' ? dirname(targetFilePath) : dirname(dirname(targetFilePath));
 	return mediaType === 'movie'
-		? { nfo: targetFilePath.replace(/\.[^.]+$/, '.nfo'), poster: joinRemote(topFolder, 'poster.jpg') }
+		? {
+				nfo: targetFilePath.replace(/\.[^.]+$/, '.nfo'),
+				poster: joinRemote(topFolder, 'poster.jpg')
+			}
 		: { nfo: joinRemote(topFolder, 'tvshow.nfo'), poster: joinRemote(topFolder, 'poster.jpg') };
 }
 

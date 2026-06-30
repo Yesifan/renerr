@@ -51,10 +51,18 @@
 	>
 		<div class="absolute inset-0 bg-muted">
 			{#if item.posterUrl}
-				<img class="h-full w-full object-cover" src={item.posterUrl} alt={item.title || item.topLevelPath} />
+				<img
+					class="h-full w-full object-cover"
+					src={item.posterUrl}
+					alt={item.title || item.topLevelPath}
+				/>
 			{:else}
-				<div class="flex h-full items-center justify-center bg-muted px-4 text-center text-sm text-muted-foreground">
-					<div class="text-base font-medium text-foreground">{item.kind === 'folder' ? '文件夹' : '视频文件'}</div>
+				<div
+					class="flex h-full items-center justify-center bg-muted px-4 text-center text-sm text-muted-foreground"
+				>
+					<div class="text-base font-medium text-foreground">
+						{item.kind === 'folder' ? '文件夹' : '视频文件'}
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -78,9 +86,13 @@
 			<span class="sr-only">{statusText(item.status, item.reviewReason)}</span>
 		</div>
 
-		<Card.Content class="absolute inset-x-0 bottom-0 z-10 flex translate-y-2 flex-col gap-2 bg-gradient-to-t from-background/95 via-background/80 to-transparent p-3 pt-12 opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:translate-y-0 motion-reduce:transition-none">
+		<Card.Content
+			class="absolute inset-x-0 bottom-0 z-10 flex translate-y-2 flex-col gap-2 bg-gradient-to-t from-background/95 via-background/80 to-transparent p-3 pt-12 opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:translate-y-0 motion-reduce:transition-none"
+		>
 			<div>
-				<div class="line-clamp-2 text-sm font-medium text-foreground">{item.title || item.topLevelPath}</div>
+				<div class="line-clamp-2 text-sm font-medium text-foreground">
+					{item.title || item.topLevelPath}
+				</div>
 				<div class="mt-1 text-xs text-muted-foreground">
 					{item.year || '年份未知'} · {item.videoFileCount} 个视频
 				</div>

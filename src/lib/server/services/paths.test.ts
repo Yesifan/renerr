@@ -6,7 +6,9 @@ import { renderTemplate } from './naming';
 describe('path helpers', () => {
 	it('normalizes remote POSIX paths', () => {
 		expect(normalizeRemotePath('quark/待整理影视/')).toBe('/quark/待整理影视');
-		expect(joinRemote('/quark', '待整理影视', '甄嬛传 (2011)')).toBe('/quark/待整理影视/甄嬛传 (2011)');
+		expect(joinRemote('/quark', '待整理影视', '甄嬛传 (2011)')).toBe(
+			'/quark/待整理影视/甄嬛传 (2011)'
+		);
 	});
 
 	it('sanitizes path segments', () => {

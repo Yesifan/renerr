@@ -24,28 +24,35 @@ type SourceRow = {
 
 export function listSources() {
 	return getSqlite()
-		.prepare('select id, name, url, username, created_at, updated_at from webdav_sources order by name')
+		.prepare(
+			'select id, name, url, username, created_at, updated_at from webdav_sources order by name'
+		)
 		.all()
 		.map((row) => mapSource(row as SourceRow));
 }
 
 export function getSource(id: string) {
 	const row = getSqlite().prepare('select * from webdav_sources where id = ?').get(id) as
-		| SourceRow
-		| undefined;
+		SourceRow | undefined;
 	if (!row) throw new Error('Source not found');
 	return row;
 }
 
 export function getClientForSource(sourceId: string) {
 	const source = getSource(sourceId);
-	return new WebDavFileClient(source.url, source.username, decryptCredential(source.credential_encrypted));
+	return new WebDavFileClient(
+		source.url,
+		source.username,
+		decryptCredential(source.credential_encrypted)
+	);
 }
 
 export function upsertSource(input: unknown, id?: string) {
 	const parsed = webdavSourceInputSchema.parse(input);
 	const db = getSqlite();
-	const existing = id ? (db.prepare('select * from webdav_sources where id = ?').get(id) as SourceRow) : undefined;
+	const existing = id
+		? (db.prepare('select * from webdav_sources where id = ?').get(id) as SourceRow)
+		: undefined;
 	if (id && !existing) throw new Error('Source not found');
 	if (!parsed.credential && !existing) throw new Error('Credential is required');
 	const now = nowIso();
@@ -67,13 +74,18 @@ export function upsertSource(input: unknown, id?: string) {
 		createdAt: existing?.created_at || now,
 		updatedAt: now
 	});
-	return mapSource(db.prepare('select * from webdav_sources where id = ?').get(sourceId) as SourceRow);
+	return mapSource(
+		db.prepare('select * from webdav_sources where id = ?').get(sourceId) as SourceRow
+	);
 }
 
 export async function testWebdavConnection(input: unknown, id?: string) {
 	const parsed = webdavSourceInputSchema.parse(input);
-	const existing = id ? (getSqlite().prepare('select * from webdav_sources where id = ?').get(id) as SourceRow) : undefined;
-	const credential = parsed.credential || (existing ? decryptCredential(existing.credential_encrypted) : '');
+	const existing = id
+		? (getSqlite().prepare('select * from webdav_sources where id = ?').get(id) as SourceRow)
+		: undefined;
+	const credential =
+		parsed.credential || (existing ? decryptCredential(existing.credential_encrypted) : '');
 	if (!credential) throw new ApiError('validation_failed', 'Credential is required', 400);
 	const client = new WebDavFileClient(parsed.url, parsed.username, credential);
 	try {
@@ -117,11 +129,11 @@ export async function browseWebdav(sourceId: string, path: string) {
 export function listLibraries() {
 	return (
 		getSqlite()
-		.prepare(
-			`select lp.*, s.name as source_name
+			.prepare(
+				`select lp.*, s.name as source_name
 			 from library_paths lp join webdav_sources s on s.id = lp.source_id
 			 order by s.name, lp.path`
-		)
+			)
 			.all() as Record<string, unknown>[]
 	).map(mapLibrary);
 }

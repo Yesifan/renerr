@@ -24,14 +24,24 @@
 		onTest: () => void | Promise<void>;
 	};
 
-	let { open = $bindable(), form = $bindable(), sources, busy, testLabel, onSave, onTest }: Props = $props();
+	let {
+		open = $bindable(),
+		form = $bindable(),
+		sources,
+		busy,
+		testLabel,
+		onSave,
+		onTest
+	}: Props = $props();
 
 	const mediaTypeLabels: Record<LibraryForm['mediaType'], string> = {
 		tv: '电视剧',
 		movie: '电影'
 	};
 
-	const selectedSourceName = $derived(sources.find((source) => source.id === form.sourceId)?.name ?? '选择媒体源');
+	const selectedSourceName = $derived(
+		sources.find((source) => source.id === form.sourceId)?.name ?? '选择媒体源'
+	);
 </script>
 
 <Dialog.Root bind:open>

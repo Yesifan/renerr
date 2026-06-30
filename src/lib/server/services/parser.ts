@@ -45,5 +45,10 @@ export function parseTvName(value: string) {
 	if (/^\d{1,3}$/.test(name)) {
 		return { title: '', season: 1, episode: Number(name), year: undefined };
 	}
-	return { title: normalizeTitle(name), season: undefined, episode: undefined, year: extractYear(name) };
+	return {
+		title: normalizeTitle(name),
+		season: undefined,
+		episode: undefined,
+		year: extractYear(name)
+	};
 }

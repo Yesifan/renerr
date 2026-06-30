@@ -19,7 +19,9 @@
 		<Empty.Root class="col-span-full">
 			<Empty.Header>
 				<Empty.Title>还没有条目</Empty.Title>
-				<Empty.Description>扫描这个 Library Path 后会显示一级文件夹和一级视频文件。</Empty.Description>
+				<Empty.Description
+					>扫描这个 Library Path 后会显示一级文件夹和一级视频文件。</Empty.Description
+				>
 			</Empty.Header>
 			<Empty.Content>
 				<Button variant="outline" disabled>等待扫描</Button>
