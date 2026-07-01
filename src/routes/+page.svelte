@@ -5,13 +5,34 @@
 	import * as Empty from '$lib/components/ui/empty';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { resolve } from '$app/paths';
-	import { libraryLabel } from '$lib/client/formatters';
+	import { api } from '$lib/client/api';
+	import { libraryLabel, progressText, statusClass, statusText } from '$lib/client/formatters';
+	import type { ActiveTaskSummary } from '$lib/schemas/domain';
+	import { onMount } from 'svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+	let activeTasks = $state<ActiveTaskSummary[]>([]);
 
 	function itemCount(libraryId: string) {
 		return data.itemCounts[libraryId] ?? 0;
+	}
+
+	function scanTask(libraryId: string) {
+		return activeTasks.find((task) => task.targetKey === `libraryPath:${libraryId}`);
+	}
+
+	onMount(() => {
+		void refreshActiveTasks();
+		const timer = setInterval(() => void refreshActiveTasks(), 2500);
+		return () => clearInterval(timer);
+	});
+
+	async function refreshActiveTasks() {
+		const params = data.libraries
+			.map((library) => `targetKey=${encodeURIComponent(`libraryPath:${library.id}`)}`)
+			.join('&');
+		activeTasks = params ? await api<ActiveTaskSummary[]>(`/api/tasks/active?${params}`) : [];
 	}
 </script>
 
@@ -23,6 +44,7 @@
 
 <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
 	{#each data.libraries as library (library.id)}
+		{@const task = scanTask(library.id)}
 		<a href={resolve(`/libraries/${library.id}`)}>
 			<Card.Root class="h-full transition hover:ring-primary/40">
 				<Card.Header>
@@ -35,6 +57,14 @@
 					<Badge variant="outline" class="w-fit">
 						自动整理：{library.autoOrganize ? '开启' : '关闭'}
 					</Badge>
+					{#if task}
+						<div class="flex flex-wrap items-center gap-2">
+							<Badge variant="outline" class={statusClass(task.state)}
+								>{statusText(task.state)}</Badge
+							>
+							<span class="truncate">{progressText(task.progress) || task.type}</span>
+						</div>
+					{/if}
 				</Card.Content>
 			</Card.Root>
 		</a>

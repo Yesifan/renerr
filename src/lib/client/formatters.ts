@@ -1,5 +1,5 @@
 import { statusLabel } from '$lib/i18n';
-import type { Library } from '$lib/schemas/domain';
+import type { Library, TaskProgress } from '$lib/schemas/domain';
 
 export function libraryLabel(library: Library) {
 	return `/${library.sourceName}${library.path}`;
@@ -16,4 +16,14 @@ export function statusClass(status: string) {
 	if (status === 'organized' || status === 'succeeded') return 'bg-emerald-500/15 text-emerald-300';
 	if (status === 'failed') return 'bg-red-500/15 text-red-300';
 	return 'bg-slate-500/15 text-slate-300';
+}
+
+export function progressText(progress: TaskProgress | null | undefined) {
+	if (!progress) return '';
+	const count =
+		typeof progress.current === 'number' && typeof progress.total === 'number'
+			? ` ${progress.current}/${progress.total}`
+			: '';
+	const message = progress.message || progress.phase || '';
+	return message ? `${message}${count}` : '';
 }

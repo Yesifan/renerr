@@ -173,4 +173,40 @@ describe('route and action boundaries', () => {
 		expect(await responseJson(valid)).toMatchObject({ autoOrganize: true });
 		db.close();
 	});
+
+	test('task APIs expose active summaries and task detail logs', async () => {
+		const db = await freshDb();
+		const { enqueueTask } = await import('$lib/server/services/tasks');
+		const { log } = await import('$lib/server/services/logs');
+		const activeApi = await import('../../routes/api/tasks/active/+server');
+		const detailApi = await import('../../routes/api/tasks/[id]/+server');
+
+		const task = enqueueTask('scan_library_path', { libraryPathId: 'lib1' });
+		log('info', 'LibraryScanner', 'Library scan started', {
+			taskId: task.id,
+			summary: 'Library scan started: /tv'
+		});
+
+		const active = await responseJson(
+			await activeApi.GET(
+				jsonEvent({}, `http://localhost/api/tasks/active?targetKey=${encodeURIComponent('libraryPath:lib1')}`) as never
+			)
+		);
+		expect(active).toMatchObject([
+			{
+				id: task.id,
+				targetKey: 'libraryPath:lib1',
+				state: 'queued'
+			}
+		]);
+
+		const detail = await responseJson(
+			await detailApi.GET(jsonEvent({}, 'http://localhost/api/tasks/id', { id: task.id }) as never)
+		);
+		expect(detail).toMatchObject({
+			task: { id: task.id, targetKey: 'libraryPath:lib1' },
+			logs: [{ message: 'Library scan started', summary: 'Library scan started: /tv' }]
+		});
+		db.close();
+	});
 });

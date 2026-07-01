@@ -10,24 +10,44 @@ import { isCompliantVideo } from './compliance';
 import { searchTmdb } from './tmdb';
 import { log } from './logs';
 import { createPlanForItem } from './planner';
-import { enqueueTask } from './tasks';
+import { enqueueTask, updateTaskProgress } from './tasks';
 import { ApiError } from '$lib/server/api';
 
 type LibraryItem = typeof libraryItems.$inferSelect;
+type ScanSummary = {
+	processed: number;
+	recognized: number;
+	failed: number;
+	skipped: number;
+	warnings: number;
+};
 
-export async function scanLibraryPath(libraryPathId: string) {
+export async function scanLibraryPath(libraryPathId: string, taskId?: string): Promise<ScanSummary> {
 	const library = getLibrary(libraryPathId);
 	const client = getClientForSource(library.sourceId);
 	const root = normalizeRemotePath(library.path);
+	log('info', 'LibraryScanner', 'Library scan started', {
+		taskId,
+		libraryPathId,
+		summary: `Library scan started: ${library.path}`
+	});
+	updateScanProgress(taskId, 'listing', 'Listing library root');
 	const entries = await client.listDirectory(root);
 	const topEntries = entries.filter(
 		(entry) => entry.type === 'directory' || isVideoPath(entry.basename)
 	);
+	const summary: ScanSummary = { processed: 0, recognized: 0, failed: 0, skipped: 0, warnings: 0 };
 	const seen = new Set(topEntries.map((entry) => entry.basename));
 	const db = getDb();
 	const now = nowIso();
 
-	for (const entry of topEntries) {
+	for (const [index, entry] of topEntries.entries()) {
+		updateScanProgress(taskId, 'scanning_items', `Scanning ${entry.basename}`, {
+			current: index + 1,
+			total: topEntries.length,
+			currentTarget: entry.basename,
+			counts: summary
+		});
 		const existing = db
 			.select()
 			.from(libraryItems)
@@ -59,28 +79,59 @@ export async function scanLibraryPath(libraryPathId: string) {
 		inheritIdentityFromRenameTarget(id);
 		const item = getLibraryItem(id);
 		const status = item.status;
-		if (status === 'pending_review') continue;
-		if (status === 'identified') continue;
+		if (status === 'pending_review' || status === 'identified') {
+			summary.skipped += 1;
+			continue;
+		}
 		if (status === 'organized') {
 			await refreshItemStats(id);
+			summary.skipped += 1;
 			continue;
 		}
 		if (status === 'unidentified') {
+			summary.processed += 1;
 			const videos = await refreshItemStats(id);
 			if (videos.length === 0) {
 				markPending(id, 'no_video', []);
+				summary.failed += 1;
+				logRecognitionFailed(taskId, id, item.topLevelPath, 'no_video');
 				continue;
 			}
+			let recognition: RecognitionResult;
 			try {
-				await recognizeItem(id);
+				recognition = await recognizeItem(id);
 			} catch (error) {
 				markPending(id, 'tmdb_error', []);
+				recognition = { status: 'pending_review', reason: 'tmdb_error' };
+				summary.warnings += 1;
 				log('warn', 'TmdbMatcher', 'TMDB recognition failed for item', {
+					taskId,
 					libraryItemId: id,
-					error: String(error)
+					error: String(error),
+					summary: `${item.topLevelPath} recognition failed: ${String(error)}`
 				});
 			}
 			const refreshed = getLibraryItem(id);
+			if (recognition.status === 'recognized' && refreshed.sourceMediaId) {
+				summary.recognized += 1;
+				log('info', 'TmdbMatcher', 'Item recognized', {
+					taskId,
+					libraryItemId: id,
+					topLevelPath: item.topLevelPath,
+					mediaType: refreshed.sourceMediaType,
+					title: refreshed.title,
+					sourceMediaId: refreshed.sourceMediaId,
+					summary: `${item.topLevelPath} recognized as ${refreshed.sourceMediaType} ${refreshed.title}`
+				});
+			} else {
+				summary.failed += 1;
+				logRecognitionFailed(
+					taskId,
+					id,
+					item.topLevelPath,
+					recognition.status === 'pending_review' ? recognition.reason : 'unknown'
+				);
+			}
 			if (library.autoOrganize && refreshed.status === 'identified') {
 				const plan = await createPlanForItem(id, 'auto');
 				enqueueTask('execute_rename_plan', { planId: plan.id });
@@ -98,7 +149,18 @@ export async function scanLibraryPath(libraryPathId: string) {
 			db.delete(libraryItems).where(eq(libraryItems.id, row.id)).run();
 		}
 	}
-	log('info', 'LibraryScanner', 'Library path scan completed', { libraryPathId, count: seen.size });
+	updateScanProgress(taskId, 'completed', 'Library scan completed', {
+		current: topEntries.length,
+		total: topEntries.length,
+		counts: summary
+	});
+	log('info', 'LibraryScanner', 'Library scan finished', {
+		taskId,
+		libraryPathId,
+		count: seen.size,
+		summary: `Library scan finished: ${summary.recognized} recognized, ${summary.failed} failed, ${summary.skipped} skipped`
+	});
+	return summary;
 }
 
 function inheritIdentityFromRenameTarget(itemId: string) {
@@ -141,9 +203,21 @@ function inheritIdentityFromRenameTarget(itemId: string) {
 		.run();
 }
 
-export async function scanLibraryItem(itemId: string) {
+export async function scanLibraryItem(itemId: string, taskId?: string): Promise<ScanSummary> {
 	const item = getDb().select().from(libraryItems).where(eq(libraryItems.id, itemId)).get();
 	if (!item) throw new ApiError('item.not_found', 'Library item not found', 404);
+	const summary: ScanSummary = { processed: 0, recognized: 0, failed: 0, skipped: 0, warnings: 0 };
+	log('info', 'LibraryScanner', 'Item scan started', {
+		taskId,
+		libraryItemId: itemId,
+		summary: `Item scan started: ${item.topLevelPath}`
+	});
+	updateScanProgress(taskId, 'scanning_items', `Scanning ${item.topLevelPath}`, {
+		current: 1,
+		total: 1,
+		currentTarget: item.topLevelPath,
+		counts: summary
+	});
 	const status = item.status;
 	if (status !== 'organized' && status !== 'unidentified') {
 		throw new ApiError(
@@ -157,23 +231,69 @@ export async function scanLibraryItem(itemId: string) {
 	}
 	const videos = await refreshItemStats(itemId);
 	if (status === 'organized') {
-		log('info', 'LibraryScanner', 'Library item scan completed', { libraryItemId: itemId, status });
-		return;
+		summary.skipped += 1;
+		log('info', 'LibraryScanner', 'Item scan finished', {
+			taskId,
+			libraryItemId: itemId,
+			status,
+			summary: `Item scan finished: ${item.topLevelPath}`
+		});
+		return summary;
 	}
+	summary.processed += 1;
 	if (videos.length === 0) {
 		markPending(itemId, 'no_video', []);
-		return;
+		summary.failed += 1;
+		logRecognitionFailed(taskId, itemId, item.topLevelPath, 'no_video');
+		return summary;
 	}
+	let recognition: RecognitionResult;
 	try {
-		await recognizeItem(itemId);
+		recognition = await recognizeItem(itemId);
 	} catch (error) {
 		markPending(itemId, 'tmdb_error', []);
+		recognition = { status: 'pending_review', reason: 'tmdb_error' };
+		summary.warnings += 1;
 		log('warn', 'TmdbMatcher', 'TMDB recognition failed for item', {
+			taskId,
 			libraryItemId: itemId,
-			error: String(error)
+			error: String(error),
+			summary: `${item.topLevelPath} recognition failed: ${String(error)}`
 		});
 	}
-	log('info', 'LibraryScanner', 'Library item scan completed', { libraryItemId: itemId, status });
+	const refreshed = getLibraryItem(itemId);
+	if (recognition.status === 'recognized' && refreshed.sourceMediaId) {
+		summary.recognized += 1;
+		log('info', 'TmdbMatcher', 'Item recognized', {
+			taskId,
+			libraryItemId: itemId,
+			topLevelPath: item.topLevelPath,
+			mediaType: refreshed.sourceMediaType,
+			title: refreshed.title,
+			sourceMediaId: refreshed.sourceMediaId,
+			summary: `${item.topLevelPath} recognized as ${refreshed.sourceMediaType} ${refreshed.title}`
+		});
+	} else {
+		summary.failed += 1;
+		logRecognitionFailed(
+			taskId,
+			itemId,
+			item.topLevelPath,
+			recognition.status === 'pending_review' ? recognition.reason : 'unknown'
+		);
+	}
+	updateScanProgress(taskId, 'completed', 'Item scan completed', {
+		current: 1,
+		total: 1,
+		counts: summary
+	});
+	log('info', 'LibraryScanner', 'Item scan finished', {
+		taskId,
+		libraryItemId: itemId,
+		status,
+		summary: `Item scan finished: ${summary.recognized} recognized, ${summary.failed} failed`
+	});
+	return summary;
 }
 
 export async function refreshItemStats(itemId: string) {
@@ -202,7 +322,11 @@ export async function refreshItemStats(itemId: string) {
 	return videos;
 }
 
-export async function recognizeItem(itemId: string) {
+type RecognitionResult =
+	| { status: 'recognized' }
+	| { status: 'pending_review'; reason: string };
+
+export async function recognizeItem(itemId: string): Promise<RecognitionResult> {
 	const db = getDb();
 	const item = getLibraryItem(itemId);
 	const library = getLibrary(item.libraryPathId);
@@ -212,7 +336,7 @@ export async function recognizeItem(itemId: string) {
 			: parseTvName(item.topLevelPath);
 	if (!parsed.title) {
 		markPending(itemId, 'parse_failed', []);
-		return;
+		return { status: 'pending_review', reason: 'parse_failed' };
 	}
 	const candidates = await searchTmdb(library.mediaType, parsed.title);
 	const normalizedInput = normalizeTitle(parsed.title);
@@ -245,9 +369,48 @@ export async function recognizeItem(itemId: string) {
 			})
 			.where(eq(libraryItems.id, itemId))
 			.run();
-		return;
+		return { status: 'recognized' };
 	}
-	markPending(itemId, candidates.length ? 'fuzzy' : 'no_match', candidates);
+	const reason = candidates.length ? 'fuzzy' : 'no_match';
+	markPending(itemId, reason, candidates);
+	return { status: 'pending_review', reason };
+}
+
+function updateScanProgress(
+	taskId: string | undefined,
+	phase: string,
+	message: string,
+	options: {
+		current?: number;
+		total?: number;
+		currentTarget?: string;
+		counts?: ScanSummary;
+	} = {}
+) {
+	if (!taskId) return;
+	updateTaskProgress(taskId, {
+		phase,
+		message,
+		...(typeof options.current === 'number' ? { current: options.current } : {}),
+		...(typeof options.total === 'number' ? { total: options.total } : {}),
+		...(options.currentTarget ? { currentTarget: options.currentTarget } : {}),
+		...(options.counts ? { counts: options.counts } : {})
+	});
+}
+
+function logRecognitionFailed(
+	taskId: string | undefined,
+	libraryItemId: string,
+	topLevelPath: string,
+	reason: string
+) {
+	log('warn', 'TmdbMatcher', 'Item recognition failed', {
+		taskId,
+		libraryItemId,
+		topLevelPath,
+		reason,
+		summary: `${topLevelPath} recognition failed: ${reason}`
+	});
 }
 
 async function collectVideos(

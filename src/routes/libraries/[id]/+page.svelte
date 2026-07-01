@@ -4,10 +4,10 @@
 	import { Button } from '$lib/components/ui/button';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { api, post } from '$lib/client/api';
-	import { libraryLabel } from '$lib/client/formatters';
+	import { libraryLabel, progressText, statusText } from '$lib/client/formatters';
 	import { queryKeys } from '$lib/client/query-keys';
 	import { messages as m } from '$lib/i18n';
-	import type { Item, Library } from '$lib/schemas/domain';
+	import type { ActiveTaskSummary, Item, Library } from '$lib/schemas/domain';
 	import type { PageProps } from './$types';
 	import LibraryItemGrid from './LibraryItemGrid.svelte';
 
@@ -31,10 +31,20 @@
 		refetchInterval: 2500
 	}));
 
+	const activeTasksQuery = createQuery<ActiveTaskSummary[]>(() => ({
+		queryKey: queryKeys.activeTasks([`libraryPath:${params.id}`]),
+		queryFn: () =>
+			api<ActiveTaskSummary[]>(
+				`/api/tasks/active?targetKey=${encodeURIComponent(`libraryPath:${params.id}`)}`
+			),
+		refetchInterval: 2500
+	}));
+
 	const library = $derived(
 		librariesQuery.data?.find((entry) => entry.id === params.id) ?? data.library
 	);
 	const items = $derived(itemsQuery.data ?? []);
+	const activeScanTask = $derived(activeTasksQuery.data?.[0] ?? null);
 
 	const scanLibraryMutation = createMutation(() => ({
 		mutationFn: () => post(`/api/libraries/${params.id}/scan`),
@@ -47,12 +57,15 @@
 		await Promise.all([
 			queryClient.invalidateQueries({ queryKey: queryKeys.libraries }),
 			queryClient.invalidateQueries({ queryKey: queryKeys.libraryItems(params.id) }),
-			queryClient.invalidateQueries({ queryKey: queryKeys.tasks })
+			queryClient.invalidateQueries({ queryKey: queryKeys.tasks }),
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.activeTasks([`libraryPath:${params.id}`])
+			})
 		]);
 	}
 
 	function busy() {
-		return scanLibraryMutation.isPending;
+		return scanLibraryMutation.isPending || Boolean(activeScanTask);
 	}
 </script>
 
@@ -68,6 +81,11 @@
 	{#snippet actions()}
 		{#if showTaskLink}
 			<Button href={resolve('/system/tasks')} variant="link">{m.nav_tasks()}</Button>
+		{/if}
+		{#if activeScanTask}
+			<Button href={resolve(`/system/tasks/${activeScanTask.id}`)} variant="link"
+				>{progressText(activeScanTask.progress) || statusText(activeScanTask.state)}</Button
+			>
 		{/if}
 		<Button disabled={busy()} onclick={() => itemsQuery.refetch()} variant="outline">刷新</Button>
 		<Button disabled={busy() || !library} onclick={() => scanLibraryMutation.mutate()}

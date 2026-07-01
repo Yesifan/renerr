@@ -474,7 +474,10 @@ describe('V1 core flows', () => {
 		}
 		const { executeRenamePlan } = await import('./executor');
 
-		await expect(executeRenamePlan('task1', 'plan1')).resolves.toBe('partially_failed');
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'partially_failed',
+			summary: { moved: 1, moveFailed: 1 }
+		});
 		expect(moves).toEqual(['/movies/source1.mkv->/movies/Movie (2024)/Movie.2024.mkv']);
 		expect(db.prepare('select count(*) as count from execution_records').get()).toEqual({
 			count: 2
@@ -529,7 +532,10 @@ describe('V1 core flows', () => {
 		).run();
 		const { executeRenamePlan } = await import('./executor');
 
-		await expect(executeRenamePlan('task1', 'plan1')).resolves.toBe('failed');
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'failed',
+			summary: { moved: 0, moveFailed: 1 }
+		});
 		expect(moveFile).not.toHaveBeenCalled();
 		expect(db.prepare('select status from library_items where id = ?').get('item1')).toEqual({
 			status: 'identified'
@@ -594,7 +600,10 @@ describe('V1 core flows', () => {
 		).run();
 		const { executeRenamePlan } = await import('./executor');
 
-		await expect(executeRenamePlan('task1', 'plan1')).resolves.toBe('succeeded');
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'succeeded',
+			summary: { moved: 1, moveFailed: 0, warnings: 2 }
+		});
 		const record = db
 			.prepare('select context_json from execution_records where status = ?')
 			.get('succeeded') as {
@@ -661,7 +670,10 @@ describe('V1 core flows', () => {
 		).run();
 		const { executeRenamePlan } = await import('./executor');
 
-		await expect(executeRenamePlan('task1', 'plan1')).resolves.toBe('succeeded');
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'succeeded',
+			summary: { moved: 1, moveFailed: 0 }
+		});
 		expect(moveFile).toHaveBeenCalledWith(
 			'/tv/Show (2026)/Season 01/01.mp4',
 			'/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4',

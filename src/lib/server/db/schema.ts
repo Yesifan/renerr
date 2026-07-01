@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 
 export const webdavSources = sqliteTable('webdav_sources', {
 	id: text('id').primaryKey(),
@@ -104,35 +104,57 @@ export const renamePlanItems = sqliteTable('rename_plan_items', {
 	status: text('status').notNull()
 });
 
-export const tasks = sqliteTable('tasks', {
-	id: text('id').primaryKey(),
-	type: text('type').notNull(),
-	state: text('state').notNull(),
-	payloadJson: text('payload_json').notNull(),
-	progressJson: text('progress_json'),
-	error: text('error'),
-	createdAt: text('created_at').notNull(),
-	startedAt: text('started_at'),
-	finishedAt: text('finished_at')
-});
+export const tasks = sqliteTable(
+	'tasks',
+	{
+		id: text('id').primaryKey(),
+		type: text('type').notNull(),
+		targetKey: text('target_key').notNull().default(''),
+		targetLabel: text('target_label'),
+		state: text('state').notNull(),
+		payloadJson: text('payload_json').notNull(),
+		progressJson: text('progress_json'),
+		resultSummaryJson: text('result_summary_json'),
+		error: text('error'),
+		createdAt: text('created_at').notNull(),
+		startedAt: text('started_at'),
+		finishedAt: text('finished_at')
+	},
+	(table) => [
+		index('task_active_target').on(table.type, table.targetKey, table.state),
+		index('task_created_at').on(table.createdAt)
+	]
+);
 
-export const executionRecords = sqliteTable('execution_records', {
-	id: text('id').primaryKey(),
-	taskId: text('task_id').notNull(),
-	planItemId: text('plan_item_id'),
-	sourcePath: text('source_path').notNull(),
-	targetPath: text('target_path').notNull(),
-	status: text('status').notNull(),
-	error: text('error'),
-	contextJson: text('context_json').notNull().default('{}'),
-	createdAt: text('created_at').notNull()
-});
+export const executionRecords = sqliteTable(
+	'execution_records',
+	{
+		id: text('id').primaryKey(),
+		taskId: text('task_id').notNull(),
+		planItemId: text('plan_item_id'),
+		sourcePath: text('source_path').notNull(),
+		targetPath: text('target_path').notNull(),
+		status: text('status').notNull(),
+		error: text('error'),
+		contextJson: text('context_json').notNull().default('{}'),
+		createdAt: text('created_at').notNull()
+	},
+	(table) => [
+		index('execution_record_task').on(table.taskId, table.createdAt),
+		index('execution_record_created_at').on(table.createdAt)
+	]
+);
 
-export const logs = sqliteTable('logs', {
-	id: text('id').primaryKey(),
-	time: text('time').notNull(),
-	level: text('level', { enum: ['error', 'warn', 'info'] }).notNull(),
-	component: text('component').notNull(),
-	message: text('message').notNull(),
-	contextJson: text('context_json').notNull().default('{}')
-});
+export const logs = sqliteTable(
+	'logs',
+	{
+		id: text('id').primaryKey(),
+		taskId: text('task_id'),
+		time: text('time').notNull(),
+		level: text('level', { enum: ['error', 'warn', 'info'] }).notNull(),
+		component: text('component').notNull(),
+		message: text('message').notNull(),
+		contextJson: text('context_json').notNull().default('{}')
+	},
+	(table) => [index('log_task').on(table.taskId, table.time), index('log_time').on(table.time)]
+);

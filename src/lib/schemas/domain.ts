@@ -167,6 +167,8 @@ export type ItemDetailFile = {
 
 export type ExecutionRecord = {
 	id: string;
+	taskId?: string;
+	planItemId?: string | null;
 	sourcePath: string;
 	targetPath: string;
 	status: string;
@@ -213,18 +215,57 @@ export type RenamePlanDraftRow = {
 export type Task = {
 	id: string;
 	type: string;
+	targetKey: string;
+	targetLabel: string | null;
 	state: string;
+	payload: unknown;
+	progress: TaskProgress | null;
+	resultSummary: TaskResultSummary | null;
 	error: string | null;
 	createdAt: string;
 	startedAt: string | null;
 	finishedAt: string | null;
 };
 
+export type TaskProgress = {
+	phase: string;
+	message: string;
+	current?: number;
+	total?: number;
+	currentTarget?: string;
+	counts?: Record<string, number>;
+};
+
+export type TaskResultSummary = Record<string, unknown>;
+
+export type TaskDetail = {
+	task: Task;
+	logs: LogEntry[];
+	executionRecords: ExecutionRecord[];
+	detailsCleaned: boolean;
+};
+
+export type ActiveTaskSummary = {
+	id: string;
+	type: string;
+	targetKey: string;
+	targetLabel: string | null;
+	state: string;
+	payload: unknown;
+	progress: TaskProgress | null;
+	createdAt: string;
+	startedAt: string | null;
+};
+
 export type LogEntry = {
 	id: string;
+	taskId: string | null;
+	taskType?: string | null;
+	taskTargetLabel?: string | null;
 	time: string;
 	level: string;
 	component: string;
 	message: string;
+	summary: string | null;
 	context: unknown;
 };

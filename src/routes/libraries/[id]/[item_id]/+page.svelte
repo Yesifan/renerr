@@ -2,12 +2,19 @@
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { resolve } from '$app/paths';
 	import { api, post, put } from '$lib/client/api';
-	import { libraryLabel } from '$lib/client/formatters';
+	import { libraryLabel, progressText, statusText } from '$lib/client/formatters';
 	import { queryKeys } from '$lib/client/query-keys';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { messages as m } from '$lib/i18n';
-	import type { Item, RenamePlanDraft, RenamePlanDraftRow, TmdbResult } from '$lib/schemas/domain';
+	import type {
+		ActiveTaskSummary,
+		Item,
+		RenamePlanDraft,
+		RenamePlanDraftRow,
+		Task,
+		TmdbResult
+	} from '$lib/schemas/domain';
 	import type { PageProps } from './$types';
 	import ItemDetailPanel from '../ItemDetailPanel.svelte';
 	import ManualMatchPanel from '../ManualMatchPanel.svelte';
@@ -24,6 +31,12 @@
 	let manualDialogOpen = $state(false);
 	let planDialogOpen = $state(false);
 	let recognizedItem = $state<Item | null>(null);
+	let submittedTaskId = $state<string | null>(null);
+
+	type SubmitDraftResult = {
+		plan: unknown;
+		task: Task;
+	};
 
 	const draftQuery = createQuery<RenamePlanDraft>(() => ({
 		queryKey: queryKeys.planDraft(draftId),
@@ -36,6 +49,16 @@
 	const manualResults = $derived(
 		searchResults.length ? searchResults : item.recognitionCandidates || []
 	);
+	const activeTasksQuery = createQuery<ActiveTaskSummary[]>(() => ({
+		queryKey: queryKeys.activeTasks([`libraryItem:${params.item_id}`]),
+		queryFn: () =>
+			api<ActiveTaskSummary[]>(
+				`/api/tasks/active?targetKey=${encodeURIComponent(`libraryItem:${params.item_id}`)}`
+			),
+		refetchInterval: 2500
+	}));
+	const activeItemTask = $derived(activeTasksQuery.data?.[0] ?? null);
+	const taskLinkId = $derived(submittedTaskId ?? activeItemTask?.id ?? null);
 
 	const scanItemMutation = createMutation(() => ({
 		mutationFn: (target: Item) => post(`/api/library-items/${target.id}/scan`),
@@ -76,8 +99,11 @@
 	}));
 
 	const submitDraftMutation = createMutation(() => ({
-		mutationFn: () => post(`/api/rename-plan-drafts/${draftId}/submit`),
-		onSuccess: () => afterTaskMutation(m.toast_task_queued())
+		mutationFn: () => post<SubmitDraftResult>(`/api/rename-plan-drafts/${draftId}/submit`),
+		onSuccess: (result) => {
+			submittedTaskId = result.task.id;
+			return afterTaskMutation(m.toast_task_queued());
+		}
 	}));
 
 	async function afterTaskMutation(text: string) {
@@ -87,7 +113,10 @@
 		await Promise.all([
 			queryClient.invalidateQueries({ queryKey: queryKeys.libraries }),
 			queryClient.invalidateQueries({ queryKey: queryKeys.libraryItems(params.id) }),
-			queryClient.invalidateQueries({ queryKey: queryKeys.tasks })
+			queryClient.invalidateQueries({ queryKey: queryKeys.tasks }),
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.activeTasks([`libraryItem:${params.item_id}`])
+			})
 		]);
 	}
 
@@ -129,6 +158,7 @@
 	function busy() {
 		return (
 			scanItemMutation.isPending ||
+			Boolean(activeItemTask) ||
 			createDraftMutation.isPending ||
 			updateDraftMutation.isPending ||
 			submitDraftMutation.isPending
@@ -174,6 +204,15 @@
 			>
 			{#if showTaskLink}
 				<Button href={resolve('/system/tasks')} variant="link">{m.nav_tasks()}</Button>
+			{/if}
+			{#if taskLinkId}
+				<Button href={resolve(`/system/tasks/${taskLinkId}`)} variant="link">
+					{#if activeItemTask}
+						{progressText(activeItemTask.progress) || statusText(activeItemTask.state)}
+					{:else}
+						任务详情
+					{/if}
+				</Button>
 			{/if}
 			{#if canScanItem(item)}
 				<Button disabled={busy()} onclick={() => scanItemMutation.mutate(item)} variant="outline">

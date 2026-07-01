@@ -17,17 +17,20 @@ while (true) {
 	try {
 		log('info', 'TaskExecutor', 'Task started', { taskId: task.id, type: task.type });
 		let state: 'succeeded' | 'partially_failed' | 'failed' = 'succeeded';
+		let summary: unknown;
 		if (task.type === 'scan_library_path') {
-			await scanLibraryPath(String(task.payload.libraryPathId));
+			summary = await scanLibraryPath(String(task.payload.libraryPathId), task.id);
 		} else if (task.type === 'scan_library_item') {
-			await scanLibraryItem(String(task.payload.libraryItemId));
+			summary = await scanLibraryItem(String(task.payload.libraryItemId), task.id);
 		} else if (task.type === 'execute_rename_plan') {
-			state = await executeRenamePlan(task.id, String(task.payload.planId));
+			const result = await executeRenamePlan(task.id, String(task.payload.planId));
+			state = result.state;
+			summary = result.summary;
 		} else {
 			throw new Error(`Unsupported task type: ${task.type}`);
 		}
-		finishTask(task.id, state);
-		log('info', 'TaskExecutor', 'Task finished', { taskId: task.id, state });
+		finishTask(task.id, state, undefined, summary);
+		log('info', 'TaskExecutor', 'Task finished', { taskId: task.id, state, summary });
 	} catch (error) {
 		finishTask(task.id, 'failed', String(error));
 		log('error', 'TaskExecutor', 'Task failed', { taskId: task.id, error: String(error) });

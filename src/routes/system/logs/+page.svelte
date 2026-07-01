@@ -5,6 +5,7 @@
 	import * as Table from '$lib/components/ui/table';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SectionPanel from '$lib/components/SectionPanel.svelte';
+	import { resolve } from '$app/paths';
 	import { api, post } from '$lib/client/api';
 	import { statusClass } from '$lib/client/formatters';
 	import type { LogEntry } from '$lib/schemas/domain';
@@ -61,7 +62,9 @@
 					<Table.Head>时间</Table.Head>
 					<Table.Head>级别</Table.Head>
 					<Table.Head>组件</Table.Head>
+					<Table.Head>任务</Table.Head>
 					<Table.Head>消息</Table.Head>
+					<Table.Head>摘要</Table.Head>
 				</Table.Row>
 			</Table.Header>
 			<Table.Body>
@@ -76,7 +79,17 @@
 							>
 						</Table.Cell>
 						<Table.Cell class="font-medium text-foreground">{entry.component}</Table.Cell>
+						<Table.Cell>
+							{#if entry.taskId}
+								<a class="text-primary hover:underline" href={resolve(`/system/tasks/${entry.taskId}`)}>
+									{entry.taskTargetLabel || entry.taskType || entry.taskId}
+								</a>
+							{:else}
+								<span class="text-muted-foreground">-</span>
+							{/if}
+						</Table.Cell>
 						<Table.Cell>{entry.message}</Table.Cell>
+						<Table.Cell class="max-w-[360px] truncate">{entry.summary || ''}</Table.Cell>
 					</Table.Row>
 				{/each}
 			</Table.Body>

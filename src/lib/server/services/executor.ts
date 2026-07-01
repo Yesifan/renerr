@@ -14,12 +14,15 @@ import { log } from './logs';
 import { metadataTargets } from './naming';
 import { getSettings } from './settings';
 import { isCompliantVideo } from './compliance';
+import { updateTaskProgress } from './tasks';
 
 type ItemExecutionSummary = {
 	ok: number;
 	failed: number;
 	succeededTargets: string[];
 };
+
+type RenameTaskState = 'succeeded' | 'partially_failed' | 'failed';
 
 export async function executeRenamePlan(taskId: string, planId: string) {
 	const db = getDb();
@@ -30,14 +33,31 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 	const rows = db.select().from(renamePlanItems).where(eq(renamePlanItems.planId, planId)).all();
 	let ok = 0;
 	let failed = 0;
+	let warningsCount = 0;
 	const itemSummaries = new Map<string, ItemExecutionSummary>();
 	const metadataDone = new Set<string>();
-	for (const row of rows) {
+	log('info', 'RenameExecutor', 'Rename plan started', {
+		taskId,
+		planId,
+		libraryPathId: plan.libraryPathId,
+		summary: `Rename plan started: ${rows.length} files`
+	});
+	updateRenameProgress(taskId, 'moving', 'Preparing rename plan', 0, rows.length, {
+		succeeded: ok,
+		failed,
+		warnings: warningsCount
+	});
+	for (const [index, row] of rows.entries()) {
 		const itemId = row.libraryItemId;
 		const originalSource = row.sourceFilePath;
 		let source = originalSource;
 		const target = row.targetFilePath;
 		const warnings: Record<string, unknown>[] = [];
+		updateRenameProgress(taskId, 'moving', `Moving ${source}`, index + 1, rows.length, {
+			succeeded: ok,
+			failed,
+			warnings: warningsCount
+		}, source);
 		try {
 			if (!(await client.exists(source))) {
 				const intermediate = intermediateMovePath(source, target);
@@ -69,15 +89,33 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 						);
 					}
 				} catch (error) {
+					warningsCount += 1;
 					warnings.push({ type: 'sidecar_move_failed', sidecar, error: String(error) });
-					log('warn', 'RenameExecutor', 'Sidecar move failed', { sidecar, error: String(error) });
+					log('warn', 'RenameExecutor', 'Sidecar move failed', {
+						taskId,
+						planId,
+						planItemId: row.id,
+						libraryItemId: itemId,
+						sidecar,
+						error: String(error),
+						summary: `${sidecar} sidecar move failed: ${String(error)}`
+					});
 				}
 			}
 			try {
 				await writeMetadataOnce(client, target, library.mediaType, metadataDone);
 			} catch (error) {
+				warningsCount += 1;
 				warnings.push({ type: 'metadata_write_failed', target, error: String(error) });
-				log('warn', 'RenameExecutor', 'Metadata write failed', { target, error: String(error) });
+				log('warn', 'RenameExecutor', 'Metadata write failed', {
+					taskId,
+					planId,
+					planItemId: row.id,
+					libraryItemId: itemId,
+					target,
+					error: String(error),
+					summary: `${target} metadata write failed: ${String(error)}`
+				});
 			}
 			db.update(renamePlanItems)
 				.set({ status: 'succeeded' })
@@ -96,6 +134,15 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 				})
 				.run();
 			ok += 1;
+			log('info', 'RenameExecutor', 'File move succeeded', {
+				taskId,
+				planId,
+				planItemId: row.id,
+				libraryItemId: itemId,
+				sourcePath: source,
+				targetPath: target,
+				summary: `${source} -> ${target}`
+			});
 			const summary = summaryFor(itemSummaries, itemId);
 			summary.ok += 1;
 			summary.succeededTargets.push(target);
@@ -118,8 +165,23 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 				})
 				.run();
 			failed += 1;
+			log('error', 'RenameExecutor', 'File move failed', {
+				taskId,
+				planId,
+				planItemId: row.id,
+				libraryItemId: itemId,
+				sourcePath: source,
+				targetPath: target,
+				error: String(error),
+				summary: `${source} -> ${target}: ${String(error)}`
+			});
 			summaryFor(itemSummaries, itemId).failed += 1;
 		}
+		updateRenameProgress(taskId, 'moving', `Processed ${index + 1}/${rows.length}`, index + 1, rows.length, {
+			succeeded: ok,
+			failed,
+			warnings: warningsCount
+		});
 	}
 	const itemIds = [...new Set(rows.map((row) => row.libraryItemId))];
 	for (const itemId of itemIds) {
@@ -127,7 +189,40 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 		updateItemAfterExecution(itemId, library.mediaType, summary);
 	}
 	db.update(renamePlans).set({ status: 'executed' }).where(eq(renamePlans.id, planId)).run();
-	return failed === 0 ? 'succeeded' : ok > 0 ? 'partially_failed' : 'failed';
+	const state: RenameTaskState = failed === 0 ? 'succeeded' : ok > 0 ? 'partially_failed' : 'failed';
+	const summary = { moved: ok, moveFailed: failed, warnings: warningsCount, total: rows.length };
+	updateRenameProgress(taskId, 'completed', 'Rename plan finished', rows.length, rows.length, {
+		succeeded: ok,
+		failed,
+		warnings: warningsCount
+	});
+	log(state === 'failed' ? 'error' : failed > 0 ? 'warn' : 'info', 'RenameExecutor', 'Rename plan finished', {
+		taskId,
+		planId,
+		state,
+		...summary,
+		summary: `Rename plan finished: ${ok} moved, ${failed} failed, ${warningsCount} warnings`
+	});
+	return { state, summary };
+}
+
+function updateRenameProgress(
+	taskId: string,
+	phase: string,
+	message: string,
+	current: number,
+	total: number,
+	counts: Record<string, number>,
+	currentTarget?: string
+) {
+	updateTaskProgress(taskId, {
+		phase,
+		message,
+		current,
+		total,
+		...(currentTarget ? { currentTarget } : {}),
+		counts
+	});
 }
 
 function summaryFor(summaries: Map<string, ItemExecutionSummary>, itemId: string) {
