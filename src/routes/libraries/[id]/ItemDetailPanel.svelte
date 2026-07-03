@@ -2,6 +2,8 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { statusClass, statusText } from '$lib/client/formatters';
 	import type { Item, Library } from '$lib/schemas/domain';
+	import FileVideo from 'lucide-svelte/icons/file-video';
+	import FolderArchive from 'lucide-svelte/icons/folder-archive';
 
 	type Props = {
 		item: Item;
@@ -43,9 +45,23 @@
 						<img class="h-full w-full object-cover" src={item.posterUrl} alt={displayTitle} />
 					{:else}
 						<div
-							class="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground"
+							class="flex h-full flex-col items-center justify-center gap-4 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--muted-foreground)/0.22),transparent_34%),linear-gradient(160deg,hsl(var(--muted)),hsl(var(--background)))] px-4 text-center text-sm text-muted-foreground"
 						>
-							{item.kind === 'folder' ? '文件夹' : '视频文件'}
+							<div
+								class="flex size-14 items-center justify-center rounded-md border border-border bg-background/70"
+							>
+								{#if item.kind === 'folder'}
+									<FolderArchive class="size-7 text-muted-foreground" aria-hidden="true" />
+								{:else}
+									<FileVideo class="size-7 text-muted-foreground" aria-hidden="true" />
+								{/if}
+							</div>
+							<div class="line-clamp-6 break-all text-base font-medium text-foreground">
+								{item.topLevelPath}
+							</div>
+							<div class="text-xs text-muted-foreground">
+								{item.kind === 'folder' ? '文件夹' : '视频文件'}
+							</div>
 						</div>
 					{/if}
 				</div>

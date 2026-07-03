@@ -46,24 +46,134 @@ describe('task observability', () => {
 		db.close();
 	});
 
+	test('active task lookup expands library item keys to related rename tasks', async () => {
+		const db = await freshDb();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, video_file_count, compliant_file_count,
+			  non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1', 'identified', 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'confirmed', '{}', 'web', 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plan_items
+			 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+			  media_kind, source_media_id, overwrite, sidecars_json, status)
+			 values ('row1', 'plan1', 'item1', '/tv/Show1/01.mkv', '/tv/Show1 (2024)/Season 01/Show1.2024.s01e01.mkv',
+			  'Show1 (2024)', 'tv', '100', 0, '[]', 'pending')`
+		).run();
+		const { enqueueTask, listActiveTasks, updateTaskProgress } = await import('./tasks');
+
+		const task = enqueueTask('execute_rename_plan', { planId: 'plan1' });
+		updateTaskProgress(task.id, {
+			phase: 'moving',
+			message: 'Processed 1/2',
+			current: 1,
+			total: 2,
+			counts: { succeeded: 1, failed: 0, warnings: 0 }
+		});
+
+		expect(listActiveTasks(['libraryItem:item1'])).toMatchObject([
+			{
+				id: task.id,
+				type: 'execute_rename_plan',
+				targetKey: 'renamePlan:plan1',
+				progress: {
+					current: 1,
+					total: 2,
+					counts: { succeeded: 1, failed: 0, warnings: 0 }
+				}
+			}
+		]);
+		db.close();
+	});
+
+	test('enqueueTask rejects terminal rename plans', async () => {
+		const db = await freshDb();
+		seedLibrary(db);
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'executed', '{}', 'web', 'now', 'now')`
+		).run();
+		const { enqueueTask } = await import('./tasks');
+
+		expect(() => enqueueTask('execute_rename_plan', { planId: 'plan1' })).toThrow(
+			'Rename plan has already been executed'
+		);
+		db.close();
+	});
+
+	test('startup failure summarizes interrupted rename task rows', async () => {
+		const db = await freshDb();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, video_file_count, compliant_file_count,
+			  non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1', 'identified', 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'executing', '{}', 'web', 'now', 'now')`
+		).run();
+		for (const [id, status] of [
+			['row1', 'succeeded'],
+			['row2', 'failed'],
+			['row3', 'pending']
+		]) {
+			db.prepare(
+				`insert into rename_plan_items
+				 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+				  media_kind, source_media_id, overwrite, sidecars_json, status)
+				 values (?, 'plan1', 'item1', ?, ?, 'Show1 (2024)', 'tv', '100', 0, '[]', ?)`
+			).run(id, `/tv/Show1/${id}.mkv`, `/tv/Show1 (2024)/${id}.mkv`, status);
+		}
+		db.prepare(
+			`insert into tasks (id, type, target_key, state, payload_json, created_at)
+			 values ('task1', 'execute_rename_plan', 'renamePlan:plan1', 'running', '{"planId":"plan1"}', 'now')`
+		).run();
+		const { failRunningTasksOnStartup, getTask } = await import('./tasks');
+
+		failRunningTasksOnStartup();
+
+		expect(getTask('task1')).toMatchObject({
+			state: 'failed',
+			resultSummary: {
+				interrupted: true,
+				succeeded: 1,
+				failed: 1,
+				pending: 1
+			}
+		});
+		expect(db.prepare('select status from rename_plans where id = ?').get('plan1')).toEqual({
+			status: 'executed'
+		});
+		db.close();
+	});
+
 	test('scan task writes progress, recognition logs, and summary', async () => {
 		await freshDb();
 		vi.stubGlobal(
 			'fetch',
-			vi.fn(async () =>
-				new Response(
-					JSON.stringify({
-						results: [
-							{
-								id: 100,
-								name: 'Show1',
-								original_name: 'Show1',
-								first_air_date: '2024-01-01'
-							}
-						]
-					}),
-					{ status: 200 }
-				)
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							results: [
+								{
+									id: 100,
+									name: 'Show1',
+									original_name: 'Show1',
+									first_air_date: '2024-01-01'
+								}
+							]
+						}),
+						{ status: 200 }
+					)
 			)
 		);
 		vi.doMock('./sources', () => ({
@@ -102,9 +212,9 @@ describe('task observability', () => {
 		expect(detail.task.progress).toMatchObject({ phase: 'completed' });
 		expect(detail.task.resultSummary).toMatchObject({ processed: 1, recognized: 1, failed: 0 });
 		expect(detail.logs.map((entry) => entry.message)).toContain('Item recognized');
-		expect(detail.logs.some((entry) => entry.summary?.includes('Show1 recognized as tv Show1'))).toBe(
-			true
-		);
+		expect(
+			detail.logs.some((entry) => entry.summary?.includes('Show1 recognized as tv Show1'))
+		).toBe(true);
 		db.close();
 	});
 

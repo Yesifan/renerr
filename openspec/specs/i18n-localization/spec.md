@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+定义 Renarr 前端用户可见文案、本地化错误和诊断日志的语言边界，确保 UI 使用 Paraglide messages，同时后端诊断保持稳定英文。
+
+## Requirements
 
 ### Requirement: 前端文案使用 Paraglide messages
 

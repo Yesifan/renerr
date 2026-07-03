@@ -8,6 +8,8 @@
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
 	import CircleAlert from 'lucide-svelte/icons/circle-alert';
 	import CircleHelp from 'lucide-svelte/icons/circle-help';
+	import FileVideo from 'lucide-svelte/icons/file-video';
+	import FolderArchive from 'lucide-svelte/icons/folder-archive';
 
 	type Props = {
 		item: Item;
@@ -58,9 +60,21 @@
 				/>
 			{:else}
 				<div
-					class="flex h-full items-center justify-center bg-muted px-4 text-center text-sm text-muted-foreground"
+					class="flex h-full flex-col items-center justify-center gap-3 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--muted-foreground)/0.22),transparent_34%),linear-gradient(160deg,hsl(var(--muted)),hsl(var(--background)))] px-4 text-center text-sm text-muted-foreground"
 				>
-					<div class="text-base font-medium text-foreground">
+					<div
+						class="flex size-12 items-center justify-center rounded-md border border-border bg-background/70"
+					>
+						{#if item.kind === 'folder'}
+							<FolderArchive class="size-6 text-muted-foreground" aria-hidden="true" />
+						{:else}
+							<FileVideo class="size-6 text-muted-foreground" aria-hidden="true" />
+						{/if}
+					</div>
+					<div class="line-clamp-5 break-all text-sm font-medium text-foreground">
+						{item.topLevelPath}
+					</div>
+					<div class="text-xs text-muted-foreground">
 						{item.kind === 'folder' ? '文件夹' : '视频文件'}
 					</div>
 				</div>

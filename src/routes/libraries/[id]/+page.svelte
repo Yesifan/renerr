@@ -94,4 +94,18 @@
 	{/snippet}
 </PageHeader>
 
+{#if activeScanTask}
+	<section class="rounded-md border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-100">
+		<div class="font-medium">
+			{progressText(activeScanTask.progress) || statusText(activeScanTask.state)}
+		</div>
+		<div class="mt-1 text-xs text-sky-100/70">
+			正在扫描当前媒体库。<a
+				class="text-sky-100 underline underline-offset-4"
+				href={resolve(`/system/tasks/${activeScanTask.id}`)}>查看任务详情</a
+			>
+		</div>
+	</section>
+{/if}
+
 <LibraryItemGrid {items} libraryPathId={params.id} />

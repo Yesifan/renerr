@@ -22,7 +22,10 @@ type ScanSummary = {
 	warnings: number;
 };
 
-export async function scanLibraryPath(libraryPathId: string, taskId?: string): Promise<ScanSummary> {
+export async function scanLibraryPath(
+	libraryPathId: string,
+	taskId?: string
+): Promise<ScanSummary> {
 	const library = getLibrary(libraryPathId);
 	const client = getClientForSource(library.sourceId);
 	const root = normalizeRemotePath(library.path);
@@ -80,6 +83,7 @@ export async function scanLibraryPath(libraryPathId: string, taskId?: string): P
 		const item = getLibraryItem(id);
 		const status = item.status;
 		if (status === 'pending_review' || status === 'identified') {
+			await refreshItemStats(id);
 			summary.skipped += 1;
 			continue;
 		}
@@ -92,9 +96,8 @@ export async function scanLibraryPath(libraryPathId: string, taskId?: string): P
 			summary.processed += 1;
 			const videos = await refreshItemStats(id);
 			if (videos.length === 0) {
-				markPending(id, 'no_video', []);
-				summary.failed += 1;
-				logRecognitionFailed(taskId, id, item.topLevelPath, 'no_video');
+				summary.skipped += 1;
+				logEmptyItem(taskId, id, item.topLevelPath);
 				continue;
 			}
 			let recognition: RecognitionResult;
@@ -242,9 +245,8 @@ export async function scanLibraryItem(itemId: string, taskId?: string): Promise<
 	}
 	summary.processed += 1;
 	if (videos.length === 0) {
-		markPending(itemId, 'no_video', []);
-		summary.failed += 1;
-		logRecognitionFailed(taskId, itemId, item.topLevelPath, 'no_video');
+		summary.skipped += 1;
+		logEmptyItem(taskId, itemId, item.topLevelPath);
 		return summary;
 	}
 	let recognition: RecognitionResult;
@@ -304,7 +306,9 @@ export async function refreshItemStats(itemId: string) {
 	const itemRoot = joinRemote(library.path, item.topLevelPath);
 	const videos =
 		item.kind === 'file'
-			? [itemRoot]
+			? (await client.exists(itemRoot))
+				? [itemRoot]
+				: []
 			: await collectVideos(client, itemRoot, library.mediaType === 'movie' ? 1 : 2);
 	const now = nowIso();
 	const compliant = videos.filter((video) => isCompliantVideo(library.mediaType, video)).length;
@@ -322,9 +326,7 @@ export async function refreshItemStats(itemId: string) {
 	return videos;
 }
 
-type RecognitionResult =
-	| { status: 'recognized' }
-	| { status: 'pending_review'; reason: string };
+type RecognitionResult = { status: 'recognized' } | { status: 'pending_review'; reason: string };
 
 export async function recognizeItem(itemId: string): Promise<RecognitionResult> {
 	const db = getDb();
@@ -410,6 +412,15 @@ function logRecognitionFailed(
 		topLevelPath,
 		reason,
 		summary: `${topLevelPath} recognition failed: ${reason}`
+	});
+}
+
+function logEmptyItem(taskId: string | undefined, libraryItemId: string, topLevelPath: string) {
+	log('info', 'LibraryScanner', 'Item has no videos', {
+		taskId,
+		libraryItemId,
+		topLevelPath,
+		summary: `${topLevelPath} has no videos`
 	});
 }
 

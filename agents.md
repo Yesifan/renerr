@@ -86,6 +86,8 @@ Renarr 是深色管理台风格应用
 完成功能后至少运行：
 
 ```sh
+pnpm run lint
+# 如果有 lint 问题可以先尝试运行 `pnpm run format` 修复
 pnpm run check
 pnpm test
 pnpm build

@@ -9,13 +9,25 @@
 		results: TmdbResult[];
 		searchLabel: string;
 		busy: boolean;
+		searchBusy?: boolean;
+		searchError?: string;
 		onQueryChange: (value: string) => void;
 		onSearch: (item: Item) => void | Promise<void>;
 		onChoose: (item: Item, result: TmdbResult) => void | Promise<void>;
 	};
 
-	let { item, query, results, searchLabel, busy, onQueryChange, onSearch, onChoose }: Props =
-		$props();
+	let {
+		item,
+		query,
+		results,
+		searchLabel,
+		busy,
+		searchBusy = false,
+		searchError = '',
+		onQueryChange,
+		onSearch,
+		onChoose
+	}: Props = $props();
 </script>
 
 <div class="flex flex-col gap-4">
@@ -25,11 +37,21 @@
 			placeholder="输入 title 或 TMDB id"
 			oninput={(event) => onQueryChange(event.currentTarget.value)}
 		/>
-		<Button variant="outline" disabled={busy} onclick={() => onSearch(item)}>{searchLabel}</Button>
+		<Button variant="outline" disabled={busy || searchBusy} onclick={() => onSearch(item)}>
+			{searchBusy ? '搜索中...' : searchLabel}
+		</Button>
 	</div>
 
 	<div class="grid gap-2">
-		{#if results.length}
+		{#if searchBusy}
+			<div class="rounded-md border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+				正在搜索 TMDB...
+			</div>
+		{:else if searchError}
+			<div class="rounded-md border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+				{searchError}
+			</div>
+		{:else if results.length}
 			{#each results as result (result.id)}
 				<Button
 					variant="outline"
@@ -50,7 +72,7 @@
 			{/each}
 		{:else}
 			<div class="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-				没有扫描候选。输入 title 或 TMDB id 后搜索。
+				没有候选结果。输入 title 或 TMDB id 后搜索。
 			</div>
 		{/if}
 	</div>

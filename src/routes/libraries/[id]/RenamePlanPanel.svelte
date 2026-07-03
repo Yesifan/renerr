@@ -22,15 +22,26 @@
 	let rowQuery = $state('');
 	let rowResults = $state<TmdbResult[]>([]);
 	let rowSearchBusy = $state(false);
+	let rowSearchError = $state('');
 
 	const selectedRows = $derived(draft.rows.filter((row) => row.selected));
 	const validSelectedRows = $derived(selectedRows.filter((row) => row.status === 'valid'));
+	const noopRows = $derived(draft.rows.filter((row) => row.noop));
 	const hasInvalidSelectedRows = $derived(selectedRows.some((row) => row.status === 'invalid'));
 	const unresolvedConflicts = $derived(
 		selectedRows.filter((row) => row.conflict && row.conflictAction !== 'overwrite').length
 	);
+	const mediaGroups = $derived.by(() => {
+		const groups: { key: string; row: RenamePlanDraftRow }[] = [];
+		for (const row of validSelectedRows) {
+			const key = `${row.mediaKind}:${row.sourceMediaId}:${row.title}:${row.year ?? ''}`;
+			if (!groups.some((group) => group.key === key)) groups.push({ key, row });
+		}
+		return groups.map((group) => group.row);
+	});
 
 	function updateSelected(row: RenamePlanDraftRow, checked: boolean | 'indeterminate') {
+		if (row.noop) return;
 		onUpdateRow({ ...row, selected: checked === true });
 	}
 
@@ -50,13 +61,18 @@
 		activeRowId = activeRowId === row.id ? null : row.id;
 		rowQuery = row.title;
 		rowResults = [];
+		rowSearchError = '';
 	}
 
 	async function searchForRow() {
 		if (!rowQuery.trim()) return;
 		rowSearchBusy = true;
+		rowSearchError = '';
 		try {
 			rowResults = await onSearchMedia(rowQuery);
+		} catch (error) {
+			rowSearchError = String(error);
+			rowResults = [];
 		} finally {
 			rowSearchBusy = false;
 		}
@@ -81,6 +97,11 @@
 	<div class="flex flex-wrap gap-2 text-xs">
 		<Badge variant="outline">共 {draft.rows.length} 个文件</Badge>
 		<Badge variant="outline">已选 {selectedRows.length}</Badge>
+		{#if noopRows.length}
+			<Badge variant="outline" class="border-slate-500/30 bg-slate-500/15 text-slate-300"
+				>跳过 {noopRows.length} 个无需整理</Badge
+			>
+		{/if}
 		{#if hasInvalidSelectedRows}
 			<Badge variant="outline" class="border-red-500/30 bg-red-500/15 text-red-300"
 				>存在无效行</Badge
@@ -111,6 +132,7 @@
 							<Table.Cell>
 								<Checkbox
 									checked={row.selected}
+									disabled={row.noop}
 									onCheckedChange={(checked) => updateSelected(row, checked)}
 								/>
 							</Table.Cell>
@@ -119,6 +141,12 @@
 								<div class="mt-2 border-t border-border/70 pt-2 text-muted-foreground">
 									目标：{row.targetFilePath || row.errorCode}
 								</div>
+								{#if row.noop}
+									<Badge
+										variant="outline"
+										class="mt-2 border-slate-500/30 bg-slate-500/15 text-slate-300">无需整理</Badge
+									>
+								{/if}
 								{#if row.sidecars.length}
 									<div class="mt-2 text-muted-foreground">
 										Sidecar：
@@ -156,20 +184,40 @@
 												oninput={(event) => (rowQuery = event.currentTarget.value)}
 											/>
 											<Button variant="outline" disabled={rowSearchBusy} onclick={searchForRow}
-												>搜索</Button
+												>{rowSearchBusy ? '搜索中...' : '搜索'}</Button
 											>
 										</div>
 										<div class="mt-2 grid gap-2">
-											{#each rowResults as result (result.id)}
-												<Button
-													variant="outline"
-													class="h-auto justify-start whitespace-normal rounded-md p-2 text-left text-xs"
-													onclick={() => chooseRowMedia(row, result)}
+											{#if rowSearchBusy}
+												<div
+													class="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground"
 												>
-													{result.title}
-													{result.year ? `(${result.year})` : ''}
-												</Button>
-											{/each}
+													正在搜索 TMDB...
+												</div>
+											{:else if rowSearchError}
+												<div
+													class="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200"
+												>
+													{rowSearchError}
+												</div>
+											{:else if rowResults.length}
+												{#each rowResults as result (result.id)}
+													<Button
+														variant="outline"
+														class="h-auto justify-start whitespace-normal rounded-md p-2 text-left text-xs"
+														onclick={() => chooseRowMedia(row, result)}
+													>
+														{result.title}
+														{result.year ? `(${result.year})` : ''}
+													</Button>
+												{/each}
+											{:else}
+												<div
+													class="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground"
+												>
+													没有搜索结果。
+												</div>
+											{/if}
 										</div>
 									</div>
 								{/if}
@@ -233,8 +281,29 @@
 		<div class="rounded-md border border-border bg-muted/20 p-4">
 			<div class="text-sm font-medium text-foreground">最终确认</div>
 			<div class="mt-1 text-xs text-muted-foreground">
-				将执行 {validSelectedRows.length} 个重命名；请重点核对目标完整路径。
+				将执行 {validSelectedRows.length} 个重命名，跳过 {noopRows.length} 个无需整理文件；请重点核对目标完整路径。
 			</div>
+		</div>
+
+		<div class="grid gap-3 md:grid-cols-2">
+			{#each mediaGroups as row (row.id)}
+				<div class="flex min-w-0 gap-3 rounded-md border border-border bg-background/55 p-3">
+					<div class="h-20 w-14 shrink-0 overflow-hidden rounded bg-muted">
+						{#if row.posterUrl}
+							<img class="h-full w-full object-cover" src={row.posterUrl} alt={row.title} />
+						{/if}
+					</div>
+					<div class="min-w-0">
+						<div class="line-clamp-2 text-sm font-medium text-foreground">{row.title}</div>
+						<div class="mt-1 text-xs text-muted-foreground">
+							{row.mediaKind === 'tv' ? '电视剧' : '电影'} · {row.year ?? '年份未知'}
+						</div>
+						<div class="mt-2 break-all font-mono text-[11px] text-muted-foreground">
+							TMDB {row.sourceMediaId || '未指定'}
+						</div>
+					</div>
+				</div>
+			{/each}
 		</div>
 
 		<div class="max-h-[58vh] overflow-auto pr-1">

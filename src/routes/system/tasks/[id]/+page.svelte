@@ -37,6 +37,21 @@
 	function json(value: unknown) {
 		return JSON.stringify(value ?? {}, null, 2);
 	}
+
+	function detailText(value: unknown) {
+		if (typeof value === 'string') return value;
+		return json(value);
+	}
+
+	function contextSummary(value: unknown) {
+		if (!value || typeof value !== 'object') return 'context';
+		const context = value as { failureStage?: unknown; intermediatePath?: unknown };
+		const parts = [];
+		if (typeof context.failureStage === 'string') parts.push(`stage: ${context.failureStage}`);
+		if (typeof context.intermediatePath === 'string')
+			parts.push(`intermediate: ${context.intermediatePath}`);
+		return parts.join(' | ') || 'context';
+	}
 </script>
 
 <svelte:head>
@@ -62,7 +77,9 @@
 				</div>
 				<div>
 					<div class="text-muted-foreground">目标</div>
-					<div class="truncate text-foreground">{detail.task.targetLabel || detail.task.targetKey}</div>
+					<div class="truncate text-foreground">
+						{detail.task.targetLabel || detail.task.targetKey}
+					</div>
 				</div>
 				<div>
 					<div class="text-muted-foreground">进度</div>
@@ -108,7 +125,14 @@
 								</Table.Cell>
 								<Table.Cell class="font-medium text-foreground">{entry.component}</Table.Cell>
 								<Table.Cell>{entry.message}</Table.Cell>
-								<Table.Cell class="max-w-[420px] truncate">{entry.summary || json(entry.context)}</Table.Cell>
+								<Table.Cell class="max-w-[420px]">
+									{@const summary = entry.summary || json(entry.context)}
+									<details>
+										<summary class="cursor-pointer truncate text-foreground">{summary}</summary>
+										<pre
+											class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs text-muted-foreground">{summary}</pre>
+									</details>
+								</Table.Cell>
 							</Table.Row>
 						{/each}
 					</Table.Body>
@@ -140,13 +164,45 @@
 							<Table.Row>
 								<Table.Cell>{record.createdAt}</Table.Cell>
 								<Table.Cell>
-									<Badge variant="outline" class={statusClass(record.status)}
-										>{record.status}</Badge
+									<Badge variant="outline" class={statusClass(record.status)}>{record.status}</Badge
 									>
 								</Table.Cell>
-								<Table.Cell class="max-w-[320px] truncate">{record.sourcePath}</Table.Cell>
-								<Table.Cell class="max-w-[320px] truncate">{record.targetPath}</Table.Cell>
-								<Table.Cell class="text-destructive">{record.error || ''}</Table.Cell>
+								<Table.Cell class="max-w-[320px]">
+									<details>
+										<summary class="cursor-pointer truncate font-mono text-xs"
+											>{record.sourcePath}</summary
+										>
+										<pre
+											class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs text-muted-foreground">{record.sourcePath}</pre>
+									</details>
+								</Table.Cell>
+								<Table.Cell class="max-w-[320px]">
+									<details>
+										<summary class="cursor-pointer truncate font-mono text-xs"
+											>{record.targetPath}</summary
+										>
+										<pre
+											class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs text-muted-foreground">{record.targetPath}</pre>
+									</details>
+								</Table.Cell>
+								<Table.Cell class="max-w-[320px] text-destructive">
+									{#if record.error}
+										<details>
+											<summary class="cursor-pointer truncate">{record.error}</summary>
+											<pre
+												class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs text-muted-foreground">{record.error}</pre>
+										</details>
+									{/if}
+									<details class={record.error ? 'mt-2' : ''}>
+										<summary class="cursor-pointer truncate text-muted-foreground"
+											>{contextSummary(record.context)}</summary
+										>
+										<pre
+											class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs text-muted-foreground">{detailText(
+												record.context
+											)}</pre>
+									</details>
+								</Table.Cell>
 							</Table.Row>
 						{/each}
 					</Table.Body>

@@ -1,4 +1,4 @@
-import { asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { executionRecords, libraryItems, renamePlanItems } from '$lib/server/db/schema';
 import { posterUrl } from './tmdb';
@@ -7,13 +7,31 @@ import { isVideoPath, joinRemote } from './paths';
 import { parseMovieName, parseTvName } from './parser';
 import { ApiError } from '$lib/server/api';
 
-export function listItems(libraryPathId?: string) {
-	const rows = libraryPathId
+type ListItemsOptions = {
+	libraryPathId?: string;
+	includeEmpty?: boolean;
+};
+
+export function listItems(input: string | ListItemsOptions = {}) {
+	const options = typeof input === 'string' ? { libraryPathId: input } : input;
+	const hideEmpty = !options.includeEmpty;
+	const notEmptyFolder = sql`${libraryItems.kind} <> 'folder' or ${libraryItems.videoFileCount} <> 0`;
+	if (options.libraryPathId) {
+		const baseWhere = eq(libraryItems.libraryPathId, options.libraryPathId);
+		const rows = getDb()
+			.select()
+			.from(libraryItems)
+			.where(hideEmpty ? and(baseWhere, notEmptyFolder) : baseWhere)
+			.orderBy(asc(libraryItems.topLevelPath))
+			.all();
+		return rows.map(mapItem);
+	}
+	const rows = hideEmpty
 		? getDb()
 				.select()
 				.from(libraryItems)
-				.where(eq(libraryItems.libraryPathId, libraryPathId))
-				.orderBy(asc(libraryItems.topLevelPath))
+				.where(notEmptyFolder)
+				.orderBy(desc(libraryItems.updatedAt))
 				.all()
 		: getDb().select().from(libraryItems).orderBy(desc(libraryItems.updatedAt)).all();
 	return rows.map(mapItem);
@@ -142,6 +160,7 @@ export function mapItem(row: typeof libraryItems.$inferSelect) {
 			? JSON.parse(row.recognitionCandidatesJson)
 			: [],
 		videoFileCount: row.videoFileCount,
+		empty: row.kind === 'folder' && row.videoFileCount === 0,
 		compliantFileCount: row.compliantFileCount,
 		nonCompliantFileCount: row.nonCompliantFileCount,
 		unknownFileCount: row.unknownFileCount,

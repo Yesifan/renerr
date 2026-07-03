@@ -1,7 +1,9 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { encryptCredential } from '$lib/server/security/credentials';
+import { basename, dirname } from './paths';
 
 const secret = Buffer.from('12345678901234567890123456789012').toString('base64');
 
@@ -20,17 +22,27 @@ async function freshDb() {
 function seedLibrary(db: { prepare(sql: string): { run(...params: unknown[]): unknown } }) {
 	db.prepare(
 		`insert into webdav_sources (id, name, url, username, credential_encrypted, created_at, updated_at)
-		 values ('source1', 'dav1', 'https://example.test/dav', 'user', 'encrypted', 'now', 'now')`
-	).run();
+		 values ('source1', 'dav1', 'https://example.test/dav', 'user', ?, 'now', 'now')`
+	).run(encryptCredential('password'));
 	db.prepare(
 		`insert into library_paths (id, source_id, path, media_type, auto_organize, created_at, updated_at)
 		 values ('lib1', 'source1', '/tv', 'tv', 0, 'now', 'now')`
 	).run();
 }
 
+function listRemoteDirectory(remotePaths: Set<string>, path: string) {
+	return [...remotePaths]
+		.filter((remotePath) => dirname(remotePath) === path)
+		.map((remotePath) => ({ basename: basename(remotePath), type: 'file' as const }));
+}
+
 describe('V1 core flows', () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
 	});
 
 	test('settings save keeps masked TMDB API key unchanged', async () => {
@@ -65,8 +77,12 @@ describe('V1 core flows', () => {
 		db.close();
 	});
 
-	test('scanLibraryPath skips pending review items', async () => {
-		const rootList = vi.fn(async () => [{ basename: 'Show1', type: 'directory' }]);
+	test('scanLibraryPath skips pending review recognition while refreshing stats', async () => {
+		const rootList = vi.fn(async (path: string) =>
+			path === '/tv'
+				? [{ basename: 'Show1', type: 'directory' }]
+				: [{ basename: 'Show1.2024.s01e01.mkv', type: 'file' }]
+		);
 		await freshDb();
 		vi.doMock('./sources', () => ({
 			getLibrary: () => ({
@@ -93,10 +109,55 @@ describe('V1 core flows', () => {
 
 		await scanLibraryPath('lib1');
 
-		expect(rootList).toHaveBeenCalledTimes(1);
-		expect(db.prepare('select status from library_items where id = ?').get('item1')).toEqual({
-			status: 'pending_review'
+		expect(
+			db.prepare('select status, video_file_count from library_items where id = ?').get('item1')
+		).toEqual({
+			status: 'pending_review',
+			video_file_count: 1
 		});
+		db.close();
+	});
+
+	test('empty folders are hidden by default but inspectable explicitly', async () => {
+		const rootList = vi.fn(async (path: string) =>
+			path === '/tv' ? [{ basename: 'EmptyShow', type: 'directory' }] : []
+		);
+		await freshDb();
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: true,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({ listDirectory: rootList })
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		const { scanLibraryPath } = await import('./scanner');
+		const { getItem, listItems } = await import('./items');
+
+		const summary = await scanLibraryPath('lib1');
+		const row = db
+			.prepare(
+				'select id, status, video_file_count, compliant_file_count, non_compliant_file_count from library_items'
+			)
+			.get() as { id: string };
+
+		expect(summary).toMatchObject({ processed: 1, skipped: 1, failed: 0 });
+		expect(listItems('lib1')).toEqual([]);
+		expect(listItems({ libraryPathId: 'lib1', includeEmpty: true })).toHaveLength(1);
+		expect(getItem(row.id)).toMatchObject({
+			topLevelPath: 'EmptyShow',
+			status: 'unidentified',
+			videoFileCount: 0,
+			empty: true
+		});
+		expect(db.prepare('select count(*) as count from tasks').get()).toEqual({ count: 0 });
 		db.close();
 	});
 
@@ -299,6 +360,76 @@ describe('V1 core flows', () => {
 		db.close();
 	});
 
+	test('draft no-op rows are skipped and can become executable after edits', async () => {
+		await freshDb();
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				listDirectory: vi.fn(async (path: string) =>
+					path.endsWith('/Season 01')
+						? [
+								{ basename: 'Show1.2024.s01e01.mkv', type: 'file' },
+								{ basename: '02.mkv', type: 'file' }
+							]
+						: [{ basename: 'Season 01', type: 'directory' }]
+				),
+				exists: vi.fn(async () => false)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id, title,
+			  year, video_file_count, compliant_file_count, non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1 (2024)', 'identified', 'tmdb', 'tv', '100', 'Show1',
+			  2024, 2, 1, 1, 0, 'now', 'now')`
+		).run();
+		const { createDraftForItem, submitDraft, updateDraft } = await import('./planner');
+
+		const draft = await createDraftForItem('item1');
+		const noopRow = draft.rows.find((row) => row.sourceFilePath === row.targetFilePath);
+		const renameRow = draft.rows.find((row) => row.sourceFilePath !== row.targetFilePath);
+
+		expect(noopRow).toMatchObject({ noop: true, selected: false, conflict: false });
+		expect(renameRow).toMatchObject({ noop: false, selected: true });
+
+		await submitDraft(draft.id);
+		expect(db.prepare('select count(*) as count from rename_plan_items').get()).toEqual({
+			count: 1
+		});
+
+		const secondDraft = await createDraftForItem('item1');
+		const secondNoopRow = secondDraft.rows.find((row) => row.sourceFilePath === row.targetFilePath);
+		if (!secondNoopRow) throw new Error('Expected no-op row');
+		const updated = await updateDraft(secondDraft.id, {
+			rows: [
+				{
+					id: secondNoopRow.id,
+					selected: true,
+					sourceMediaId: '200',
+					title: 'Show2',
+					originalTitle: 'Show2',
+					year: 2025
+				}
+			]
+		});
+		const editedRow = updated.rows.find((row) => row.id === secondNoopRow.id);
+
+		expect(editedRow).toMatchObject({ noop: false, selected: true });
+		expect(editedRow?.targetFilePath).toContain('/tv/Show2 (2025)/');
+		db.close();
+	});
+
 	test('item detail derives real-time file compliance without media file rows', async () => {
 		await freshDb();
 		vi.doMock('./sources', () => ({
@@ -428,6 +559,7 @@ describe('V1 core flows', () => {
 	test('executor continues after a missing source and returns partially_failed', async () => {
 		await freshDb();
 		const moves: string[] = [];
+		const remotePaths = new Set<string>(['/movies/source1.mkv']);
 		vi.doMock('./sources', () => ({
 			getLibrary: () => ({
 				id: 'lib1',
@@ -440,10 +572,13 @@ describe('V1 core flows', () => {
 				updatedAt: ''
 			}),
 			getClientForSource: () => ({
-				exists: vi.fn(async (path: string) => path === '/movies/source1.mkv'),
+				exists: vi.fn(async (path: string) => remotePaths.has(path)),
 				ensureDirectory: vi.fn(async () => undefined),
 				moveFile: vi.fn(async (from: string, to: string) => {
+					if (!remotePaths.has(from)) throw new Error(`Source file no longer exists: ${from}`);
 					moves.push(`${from}->${to}`);
+					remotePaths.delete(from);
+					remotePaths.add(to);
 					return { ok: true };
 				}),
 				writeTextFile: vi.fn(async () => undefined)
@@ -474,11 +609,21 @@ describe('V1 core flows', () => {
 		}
 		const { executeRenamePlan } = await import('./executor');
 
-		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+		const result = await executeRenamePlan('task1', 'plan1');
+		expect(result).toMatchObject({
 			state: 'partially_failed',
-			summary: { moved: 1, moveFailed: 1 }
+			summary: {
+				moved: 1,
+				moveFailed: 1,
+				scans: {
+					targets: [expect.objectContaining({ type: 'scan_library_path', libraryPathId: 'lib1' })]
+				}
+			}
 		});
 		expect(moves).toEqual(['/movies/source1.mkv->/movies/Movie (2024)/Movie.2024.mkv']);
+		expect(db.prepare('select type, target_key, state from tasks').all()).toEqual([
+			{ type: 'scan_library_path', target_key: 'libraryPath:lib1', state: 'queued' }
+		]);
 		expect(db.prepare('select count(*) as count from execution_records').get()).toEqual({
 			count: 2
 		});
@@ -545,8 +690,15 @@ describe('V1 core flows', () => {
 
 	test('manual overwrite allows target conflict and records sidecar and metadata warnings', async () => {
 		await freshDb();
-		const moveFile = vi.fn(async (from: string) => {
+		const remotePaths = new Set<string>([
+			'/movies/source1.mkv',
+			'/movies/source1.srt',
+			'/movies/Movie (2024)/Movie.2024.mkv'
+		]);
+		const moveFile = vi.fn(async (from: string, to: string) => {
 			if (from.endsWith('.srt')) throw new Error('sidecar denied');
+			remotePaths.delete(from);
+			remotePaths.add(to);
 			return { ok: true };
 		});
 		vi.doMock('./sources', () => ({
@@ -561,13 +713,7 @@ describe('V1 core flows', () => {
 				updatedAt: ''
 			}),
 			getClientForSource: () => ({
-				exists: vi.fn(async (path: string) =>
-					[
-						'/movies/source1.mkv',
-						'/movies/source1.srt',
-						'/movies/Movie (2024)/Movie.2024.mkv'
-					].includes(path)
-				),
+				exists: vi.fn(async (path: string) => remotePaths.has(path)),
 				ensureDirectory: vi.fn(async () => undefined),
 				moveFile,
 				writeTextFile: vi.fn(async () => {
@@ -619,18 +765,22 @@ describe('V1 core flows', () => {
 				)
 				.get('item1')
 		).toEqual({
-			status: 'organized',
+			status: 'identified',
 			video_file_count: 1,
-			compliant_file_count: 1,
-			non_compliant_file_count: 0,
-			last_execution_summary_json: JSON.stringify({ ok: 1, failed: 0 })
+			compliant_file_count: 0,
+			non_compliant_file_count: 1,
+			last_execution_summary_json: null
 		});
 		db.close();
 	});
 
-	test('executor resumes an Alist cross-directory rename left at the intermediate path', async () => {
+	test('executor leaves item stats unchanged after selected rows succeed', async () => {
 		await freshDb();
-		const moveFile = vi.fn(async () => ({ ok: true }));
+		let moved = false;
+		const moveFile = vi.fn(async () => {
+			moved = true;
+			return { ok: true };
+		});
 		vi.doMock('./sources', () => ({
 			getLibrary: () => ({
 				id: 'lib1',
@@ -643,9 +793,567 @@ describe('V1 core flows', () => {
 				updatedAt: ''
 			}),
 			getClientForSource: () => ({
-				exists: vi.fn(async (path: string) => path === '/tv/Show (2026)/Season 01/01.mp4'),
+				exists: vi.fn(async (path: string) =>
+					moved
+						? path === '/tv/Show1 (2024)/Season 01/Show1.2024.s01e01.mkv'
+						: path === '/tv/Show1 (2024)/Season 01/01.mkv'
+				),
 				ensureDirectory: vi.fn(async () => undefined),
 				moveFile,
+				listDirectory: vi.fn(async (path: string) =>
+					path.endsWith('/Season 01')
+						? [
+								{ basename: moved ? 'Show1.2024.s01e01.mkv' : '01.mkv', type: 'file' },
+								{ basename: 'Show1.2024.s01e02.mkv', type: 'file' }
+							]
+						: [{ basename: 'Season 01', type: 'directory' }]
+				),
+				writeTextFile: vi.fn(async () => undefined)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id, title,
+			  year, video_file_count, compliant_file_count, non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1 (2024)', 'identified', 'tmdb', 'tv', '100', 'Show1',
+			  2024, 2, 1, 1, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'confirmed', '{}', 'web', 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plan_items
+			 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+			  media_kind, source_media_id, season, episode, overwrite, sidecars_json, status)
+			 values ('row1', 'plan1', 'item1', '/tv/Show1 (2024)/Season 01/01.mkv',
+			  '/tv/Show1 (2024)/Season 01/Show1.2024.s01e01.mkv', 'Show1 (2024)', 'tv', '100', 1, 1, 0, '[]', 'pending')`
+		).run();
+		const { executeRenamePlan } = await import('./executor');
+
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'succeeded',
+			summary: { moved: 1, moveFailed: 0 }
+		});
+
+		expect(
+			db
+				.prepare(
+					`select status, video_file_count, compliant_file_count, non_compliant_file_count,
+					 last_execution_summary_json from library_items where id = ?`
+				)
+				.get('item1')
+		).toEqual({
+			status: 'identified',
+			video_file_count: 2,
+			compliant_file_count: 1,
+			non_compliant_file_count: 1,
+			last_execution_summary_json: null
+		});
+		db.close();
+	});
+
+	test('executor records adapter move retry warnings', async () => {
+		await freshDb();
+		const remotePaths = new Set<string>(['/tv/Show1/01.mkv']);
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				exists: vi.fn(async (path: string) => remotePaths.has(path)),
+				ensureDirectory: vi.fn(async () => undefined),
+				moveFile: vi.fn(async (from: string, to: string) => {
+					remotePaths.delete(from);
+					remotePaths.add(to);
+					return {
+						ok: true,
+						warnings: [{ type: 'webdav_move_retry', attempt: 1 }]
+					};
+				}),
+				listDirectory: vi.fn(async (path: string) => listRemoteDirectory(remotePaths, path)),
+				writeTextFile: vi.fn(async () => undefined)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id, title,
+			  year, video_file_count, compliant_file_count, non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1', 'identified', 'tmdb', 'tv', '100', 'Show1',
+			  2024, 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'confirmed', '{}', 'web', 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plan_items
+			 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+			  media_kind, source_media_id, season, episode, overwrite, sidecars_json, status)
+			 values ('row1', 'plan1', 'item1', '/tv/Show1/01.mkv',
+			  '/tv/Show1 (2024)/Season 01/Show1.2024.s01e01.mkv', 'Show1 (2024)', 'tv', '100', 1, 1, 0, '[]', 'pending')`
+		).run();
+		const { executeRenamePlan } = await import('./executor');
+
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'succeeded',
+			summary: { moved: 1, moveFailed: 0, warnings: 1 }
+		});
+		const record = db
+			.prepare('select context_json from execution_records where status = ?')
+			.get('succeeded') as {
+			context_json: string;
+		};
+		expect(JSON.parse(record.context_json).warnings).toContainEqual({
+			type: 'webdav_move_retry',
+			attempt: 1
+		});
+		db.close();
+	});
+
+	test('executor treats successful move return as success without waiting for destination visibility', async () => {
+		vi.useFakeTimers();
+		await freshDb();
+		const remotePaths = new Set<string>(['/tv/Show1/01.mkv']);
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				exists: vi.fn(async (path: string) => remotePaths.has(path)),
+				ensureDirectory: vi.fn(async () => undefined),
+				moveFile: vi.fn(async (from: string, to: string) => {
+					remotePaths.delete(from);
+					setTimeout(() => remotePaths.add(to), 5000);
+					return { ok: true };
+				}),
+				listDirectory: vi.fn(async (path: string) => listRemoteDirectory(remotePaths, path)),
+				writeTextFile: vi.fn(async () => undefined)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id, title,
+			  year, video_file_count, compliant_file_count, non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1', 'identified', 'tmdb', 'tv', '100', 'Show1',
+			  2024, 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'confirmed', '{}', 'web', 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plan_items
+			 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+			  media_kind, source_media_id, overwrite, sidecars_json, status)
+			 values ('row1', 'plan1', 'item1', '/tv/Show1/01.mkv',
+			  '/tv/Show1/Show1.2024.s01e01.mkv', 'Show1', 'tv', '100', 0, '[]', 'pending')`
+		).run();
+		const { executeRenamePlan } = await import('./executor');
+
+		const promise = executeRenamePlan('task1', 'plan1');
+		await vi.advanceTimersByTimeAsync(5000);
+
+		await expect(promise).resolves.toMatchObject({
+			state: 'succeeded',
+			summary: { moved: 1, moveFailed: 0 }
+		});
+		const record = db
+			.prepare('select context_json from execution_records where status = ?')
+			.get('succeeded') as { context_json: string };
+		expect(JSON.parse(record.context_json)).toMatchObject({
+			originalSource: '/tv/Show1/01.mkv',
+			finalTarget: '/tv/Show1/Show1.2024.s01e01.mkv'
+		});
+		db.close();
+	});
+
+	test('executor records move error without retrying retryable 500', async () => {
+		vi.useFakeTimers();
+		await freshDb();
+		const remotePaths = new Set<string>(['/movies/source1.mkv']);
+		let attempts = 0;
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/movies',
+				mediaType: 'movie',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				exists: vi.fn(async (path: string) => remotePaths.has(path)),
+				ensureDirectory: vi.fn(async () => undefined),
+				moveFile: vi.fn(async (from: string, to: string) => {
+					attempts += 1;
+					if (attempts === 1) {
+						remotePaths.delete(from);
+						setTimeout(() => remotePaths.add(from), 5000);
+						throw new Error('Invalid response: 500 Internal Server Error');
+					}
+					remotePaths.delete(from);
+					remotePaths.add(to);
+					return { ok: true };
+				}),
+				writeTextFile: vi.fn(async () => undefined)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, video_file_count, compliant_file_count,
+			  non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'file', 'source1.mkv', 'identified', 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'confirmed', '{}', 'web', 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plan_items
+			 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+			  media_kind, source_media_id, overwrite, sidecars_json, status)
+			 values ('row1', 'plan1', 'item1', '/movies/source1.mkv', '/movies/Movie.2024.mkv',
+			  'Movie (2024)', 'movie', '1', 0, '[]', 'pending')`
+		).run();
+		const { executeRenamePlan } = await import('./executor');
+
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'failed',
+			summary: { moved: 0, moveFailed: 1 }
+		});
+		expect(attempts).toBe(1);
+		db.close();
+	});
+
+	test('executor does not mark long invisible remote state as indeterminate when move returns ok', async () => {
+		vi.useFakeTimers();
+		await freshDb();
+		const remotePaths = new Set<string>(['/movies/source1.mkv']);
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/movies',
+				mediaType: 'movie',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				exists: vi.fn(async (path: string) => remotePaths.has(path)),
+				ensureDirectory: vi.fn(async () => undefined),
+				moveFile: vi.fn(async (from: string) => {
+					remotePaths.delete(from);
+					return { ok: true };
+				}),
+				writeTextFile: vi.fn(async () => undefined)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, video_file_count, compliant_file_count,
+			  non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'file', 'source1.mkv', 'identified', 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'confirmed', '{}', 'web', 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plan_items
+			 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+			  media_kind, source_media_id, overwrite, sidecars_json, status)
+			 values ('row1', 'plan1', 'item1', '/movies/source1.mkv', '/movies/Movie.2024.mkv',
+			  'Movie (2024)', 'movie', '1', 0, '[]', 'pending')`
+		).run();
+		const { executeRenamePlan } = await import('./executor');
+
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'succeeded',
+			summary: { moved: 1, moveFailed: 0 }
+		});
+		expect(db.prepare('select status from rename_plan_items where id = ?').get('row1')).toEqual({
+			status: 'succeeded'
+		});
+		db.close();
+	});
+
+	test('executor records FileClient cross-directory steps without settling checks', async () => {
+		vi.useFakeTimers();
+		await freshDb();
+		const remotePaths = new Set<string>(['/tv/Show1/01.mkv']);
+		let moveCount = 0;
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				exists: vi.fn(async (path: string) => remotePaths.has(path)),
+				ensureDirectory: vi.fn(async () => undefined),
+				moveFile: vi.fn(async (from: string, to: string) => {
+					moveCount += 1;
+					remotePaths.delete(from);
+					if (moveCount === 1) remotePaths.add(to);
+					return {
+						ok: true,
+						steps: [
+							{ stage: 'rename_in_place', from, to: '/tv/Show1/Show.2024.s01e01.mkv', ok: true },
+							{
+								stage: 'move_to_target',
+								from: '/tv/Show1/Show.2024.s01e01.mkv',
+								to,
+								ok: true
+							}
+						]
+					};
+				}),
+				listDirectory: vi.fn(async (path: string) => listRemoteDirectory(remotePaths, path)),
+				writeTextFile: vi.fn(async () => undefined)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, video_file_count, compliant_file_count,
+			  non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1', 'identified', 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'confirmed', '{}', 'web', 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plan_items
+			 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+			  media_kind, source_media_id, season, episode, overwrite, sidecars_json, status)
+			 values ('row1', 'plan1', 'item1', '/tv/Show1/01.mkv',
+			  '/tv/Show (2024)/Season 01/Show.2024.s01e01.mkv', 'Show (2024)', 'tv', '100', 1, 1, 0, '[]', 'pending')`
+		).run();
+		const { executeRenamePlan } = await import('./executor');
+
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'succeeded',
+			summary: { moved: 1, moveFailed: 0 }
+		});
+		expect(moveCount).toBe(1);
+		const record = db.prepare('select context_json from execution_records').get() as {
+			context_json: string;
+		};
+		expect(JSON.parse(record.context_json).moveSteps).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ stage: 'rename_in_place' }),
+				expect.objectContaining({ stage: 'move_to_target' })
+			])
+		);
+		expect(db.prepare('select status from rename_plan_items where id = ?').get('row1')).toEqual({
+			status: 'succeeded'
+		});
+		db.close();
+	});
+
+	test('executor does not mark duplicate source and destination state as indeterminate when move returns ok', async () => {
+		await freshDb();
+		const remotePaths = new Set<string>(['/movies/source1.mkv']);
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/movies',
+				mediaType: 'movie',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				exists: vi.fn(async (path: string) => remotePaths.has(path)),
+				ensureDirectory: vi.fn(async () => undefined),
+				moveFile: vi.fn(async (_from: string, to: string) => {
+					remotePaths.add(to);
+					return { ok: true };
+				}),
+				writeTextFile: vi.fn(async () => undefined)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, video_file_count, compliant_file_count,
+			  non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'file', 'source1.mkv', 'identified', 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'confirmed', '{}', 'web', 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plan_items
+			 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+			  media_kind, source_media_id, overwrite, sidecars_json, status)
+			 values ('row1', 'plan1', 'item1', '/movies/source1.mkv', '/movies/Movie.2024.mkv',
+			  'Movie (2024)', 'movie', '1', 0, '[]', 'pending')`
+		).run();
+		const { executeRenamePlan } = await import('./executor');
+
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'succeeded',
+			summary: { moved: 1, moveFailed: 0 }
+		});
+		expect(db.prepare('select status from rename_plan_items where id = ?').get('row1')).toEqual({
+			status: 'succeeded'
+		});
+		db.close();
+	});
+
+	test('executor delegates each row move to FileClient in row order', async () => {
+		await freshDb();
+		const remotePaths = new Set<string>(['/tv/OldShow/01.mp4', '/tv/OldShow/02.mp4']);
+		const moves: string[] = [];
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				exists: vi.fn(async (path: string) => remotePaths.has(path)),
+				ensureDirectory: vi.fn(async () => undefined),
+				moveFile: vi.fn(async (from: string, to: string) => {
+					moves.push(`${from}->${to}`);
+					remotePaths.delete(from);
+					remotePaths.add(to);
+					return { ok: true };
+				}),
+				listDirectory: vi.fn(async (path: string) => listRemoteDirectory(remotePaths, path)),
+				writeTextFile: vi.fn(async () => undefined)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id, title,
+			  year, video_file_count, compliant_file_count, non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'OldShow', 'identified', 'tmdb', 'tv', '100', 'Show',
+			  2026, 2, 0, 2, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'confirmed', '{}', 'web', 'now', 'now')`
+		).run();
+		for (const [id, episode] of [
+			['row1', 1],
+			['row2', 2]
+		] as const) {
+			db.prepare(
+				`insert into rename_plan_items
+				 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+				  media_kind, source_media_id, season, episode, overwrite, sidecars_json, status)
+				 values (?, 'plan1', 'item1', ?, ?, 'Show (2026)', 'tv', '100', 1, ?, 0, '[]', 'pending')`
+			).run(
+				id,
+				`/tv/OldShow/0${episode}.mp4`,
+				`/tv/Show (2026)/Season 01/Show.2026.s01e0${episode}.mp4`,
+				episode
+			);
+		}
+		const { executeRenamePlan } = await import('./executor');
+
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'succeeded',
+			summary: { moved: 2, moveFailed: 0 }
+		});
+		expect(moves).toEqual([
+			'/tv/OldShow/01.mp4->/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4',
+			'/tv/OldShow/02.mp4->/tv/Show (2026)/Season 01/Show.2026.s01e02.mp4'
+		]);
+		db.close();
+	});
+
+	test('executor records adapter-resumed intermediate moves from FileClient warnings', async () => {
+		await freshDb();
+		const moveFile = vi.fn(async () => ({
+			ok: true,
+			steps: [
+				{
+					stage: 'move_to_target',
+					from: '/tv/OldShow/Season 01/Show.2026.s01e01.mp4',
+					to: '/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4',
+					ok: true
+				}
+			],
+			warnings: [
+				{
+					type: 'resumed_intermediate_move',
+					originalSource: '/tv/OldShow/Season 01/01.mp4',
+					intermediate: '/tv/OldShow/Season 01/Show.2026.s01e01.mp4',
+					finalTarget: '/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4'
+				}
+			]
+		}));
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				exists: vi.fn(async () => false),
+				ensureDirectory: vi.fn(async () => undefined),
+				moveFile,
+				listDirectory: vi.fn(async (path: string) => {
+					if (path === '/tv/OldShow/Season 01') {
+						return [{ basename: 'Show.2026.s01e01.mp4', type: 'file' }];
+					}
+					return [];
+				}),
 				writeTextFile: vi.fn(async () => undefined)
 			})
 		}));
@@ -675,7 +1383,7 @@ describe('V1 core flows', () => {
 			summary: { moved: 1, moveFailed: 0 }
 		});
 		expect(moveFile).toHaveBeenCalledWith(
-			'/tv/Show (2026)/Season 01/01.mp4',
+			'/tv/OldShow/Season 01/01.mp4',
 			'/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4',
 			{ overwrite: false }
 		);
@@ -687,7 +1395,12 @@ describe('V1 core flows', () => {
 		expect(JSON.parse(record.context_json).warnings).toContainEqual({
 			type: 'resumed_intermediate_move',
 			originalSource: '/tv/OldShow/Season 01/01.mp4',
-			intermediate: '/tv/Show (2026)/Season 01/01.mp4'
+			intermediate: '/tv/OldShow/Season 01/Show.2026.s01e01.mp4',
+			finalTarget: '/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4'
+		});
+		expect(JSON.parse(record.context_json)).toMatchObject({
+			originalSource: '/tv/OldShow/Season 01/01.mp4',
+			finalTarget: '/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4'
 		});
 		expect(
 			db
@@ -697,11 +1410,72 @@ describe('V1 core flows', () => {
 				)
 				.get('item1')
 		).toEqual({
-			status: 'organized',
+			status: 'identified',
 			video_file_count: 1,
-			compliant_file_count: 1,
-			non_compliant_file_count: 0,
-			last_execution_summary_json: JSON.stringify({ ok: 1, failed: 0 })
+			compliant_file_count: 0,
+			non_compliant_file_count: 1,
+			last_execution_summary_json: null
+		});
+		db.close();
+	});
+
+	test('executor records FileClient source-missing failures without legacy recovery', async () => {
+		await freshDb();
+		const moveFile = vi.fn(async () => {
+			throw new Error('source missing');
+		});
+		const remotePaths = new Set<string>(['/tv/Show (2026)/Season 01/01.mp4']);
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				exists: vi.fn(async (path: string) => remotePaths.has(path)),
+				ensureDirectory: vi.fn(async () => undefined),
+				moveFile,
+				listDirectory: vi.fn(async () => []),
+				writeTextFile: vi.fn(async () => undefined)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, video_file_count, compliant_file_count,
+			  non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'OldShow', 'identified', 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('plan1', 'lib1', 'manual', 'confirmed', '{}', 'web', 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plan_items
+			 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+			  media_kind, source_media_id, season, episode, overwrite, sidecars_json, status)
+			 values ('row1', 'plan1', 'item1', '/tv/OldShow/Season 01/01.mp4',
+			  '/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4', 'Show (2026)', 'tv', '100', 1, 1, 0, '[]', 'pending')`
+		).run();
+		const { executeRenamePlan } = await import('./executor');
+
+		await expect(executeRenamePlan('task1', 'plan1')).resolves.toMatchObject({
+			state: 'failed',
+			summary: { moved: 0, moveFailed: 1 }
+		});
+		expect(moveFile).toHaveBeenCalledWith(
+			'/tv/OldShow/Season 01/01.mp4',
+			'/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4',
+			{ overwrite: false }
+		);
+		expect(db.prepare('select status from rename_plan_items where id = ?').get('row1')).toEqual({
+			status: 'failed'
 		});
 		db.close();
 	});

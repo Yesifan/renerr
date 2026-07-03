@@ -39,6 +39,7 @@ export type DraftRow = {
 	overwrite: boolean;
 	conflict: boolean;
 	conflictAction: 'overwrite' | null;
+	noop: boolean;
 	sidecars: string[];
 	status: 'valid' | 'invalid';
 	errorCode: string | null;
@@ -62,6 +63,7 @@ export async function createPlanForItem(itemId: string, mode: Mode) {
 	for (const sourceFilePath of sourceFiles) {
 		const row = await buildRow(item, library, sourceFilePath, false);
 		if (row.status === 'invalid') continue;
+		if (row.noop) continue;
 		insertPlanItem(planId, itemId, row);
 	}
 	return getPlan(planId);
@@ -156,7 +158,7 @@ export async function submitDraft(draftId: string) {
 	const draft = getDraftRow(draftId);
 	if (draft.status !== 'draft')
 		throw new ApiError('plan.invalid', 'Plan draft has already been submitted', 400);
-	const rows = parseRows(draft.rowsJson).filter((row) => row.selected);
+	const rows = parseRows(draft.rowsJson).filter((row) => row.selected && !row.noop);
 	if (rows.length === 0 || rows.some((row) => row.status === 'invalid')) {
 		throw new ApiError('plan.invalid', 'Plan draft contains invalid selected rows', 400);
 	}
@@ -243,14 +245,15 @@ async function buildRow(
 					settings
 				)
 			: { targetFilePath: '', targetTopLevelPath: '' };
+	const noop = status === 'valid' && target.targetFilePath === sourceFilePath;
 	const conflict =
-		checkConflict && target.targetFilePath
+		checkConflict && target.targetFilePath && !noop
 			? await getClientForSource(library.sourceId).exists(target.targetFilePath)
 			: false;
 	const conflictAction = override?.conflictAction === 'overwrite' ? 'overwrite' : null;
 	return {
 		id: override?.id ?? newId(),
-		selected: override?.selected ?? status === 'valid',
+		selected: noop ? false : (override?.selected ?? status === 'valid'),
 		sourceFilePath,
 		targetFilePath: target.targetFilePath,
 		targetTopLevelPath: target.targetTopLevelPath,
@@ -266,6 +269,7 @@ async function buildRow(
 		overwrite: conflictAction === 'overwrite',
 		conflict,
 		conflictAction,
+		noop,
 		sidecars: await discoverSidecars(sourceFilePath, library.sourceId),
 		status,
 		errorCode: status === 'invalid' ? 'plan.invalid' : null

@@ -41,6 +41,10 @@
 			busy = false;
 		}
 	}
+
+	function json(value: unknown) {
+		return JSON.stringify(value ?? {}, null, 2);
+	}
 </script>
 
 <svelte:head>
@@ -81,7 +85,10 @@
 						<Table.Cell class="font-medium text-foreground">{entry.component}</Table.Cell>
 						<Table.Cell>
 							{#if entry.taskId}
-								<a class="text-primary hover:underline" href={resolve(`/system/tasks/${entry.taskId}`)}>
+								<a
+									class="text-primary hover:underline"
+									href={resolve(`/system/tasks/${entry.taskId}`)}
+								>
 									{entry.taskTargetLabel || entry.taskType || entry.taskId}
 								</a>
 							{:else}
@@ -89,7 +96,14 @@
 							{/if}
 						</Table.Cell>
 						<Table.Cell>{entry.message}</Table.Cell>
-						<Table.Cell class="max-w-[360px] truncate">{entry.summary || ''}</Table.Cell>
+						<Table.Cell class="max-w-[360px]">
+							{@const summary = entry.summary || json(entry.context)}
+							<details>
+								<summary class="cursor-pointer truncate text-foreground">{summary}</summary>
+								<pre
+									class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs text-muted-foreground">{summary}</pre>
+							</details>
+						</Table.Cell>
 					</Table.Row>
 				{/each}
 			</Table.Body>

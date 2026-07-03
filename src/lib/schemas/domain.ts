@@ -20,6 +20,7 @@ export const sourceNameSchema = z
 	.trim()
 	.min(1)
 	.refine((value) => value !== '.' && value !== '..', 'invalid_name')
+	// eslint-disable-next-line no-control-regex
 	.refine((value) => !/[\\/:*?"<>|\u0000-\u001f]/.test(value), 'invalid_name');
 
 export const webdavSourceInputSchema = z.object({
@@ -72,7 +73,8 @@ export const settingsPatchSchema = z
 
 export const libraryItemsQuerySchema = z
 	.object({
-		libraryPathId: z.string().min(1).optional()
+		libraryPathId: z.string().min(1).optional(),
+		includeEmpty: z.boolean().optional()
 	})
 	.strict();
 
@@ -133,6 +135,7 @@ export type Item = {
 	year: number | null;
 	posterUrl: string | null;
 	videoFileCount: number;
+	empty: boolean;
 	reviewReason: string | null;
 	recognitionCandidates: TmdbResult[];
 	compliantFileCount?: number;
@@ -207,6 +210,7 @@ export type RenamePlanDraftRow = {
 	overwrite: boolean;
 	conflict: boolean;
 	conflictAction: 'overwrite' | null;
+	noop: boolean;
 	sidecars: string[];
 	status: 'valid' | 'invalid';
 	errorCode: string | null;

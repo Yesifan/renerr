@@ -6,6 +6,7 @@
 	import { queryKeys } from '$lib/client/query-keys';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import { Switch } from '$lib/components/ui/switch';
 	import { messages as m } from '$lib/i18n';
 	import type {
 		ActiveTaskSummary,
@@ -28,10 +29,13 @@
 	let showTaskLink = $state(false);
 	let manualSearch = $state('');
 	let searchResults = $state<TmdbResult[]>([]);
+	let manualSearchBusy = $state(false);
+	let manualSearchError = $state('');
 	let manualDialogOpen = $state(false);
 	let planDialogOpen = $state(false);
 	let recognizedItem = $state<Item | null>(null);
 	let submittedTaskId = $state<string | null>(null);
+	let showEmptyDetails = $state(false);
 
 	type SubmitDraftResult = {
 		plan: unknown;
@@ -122,7 +126,16 @@
 
 	async function searchItem(target: Item) {
 		const query = manualSearch || target.title || target.topLevelPath;
-		searchResults = await searchMedia(query);
+		manualSearchBusy = true;
+		manualSearchError = '';
+		try {
+			searchResults = await searchMedia(query);
+		} catch (error) {
+			manualSearchError = String(error);
+			searchResults = [];
+		} finally {
+			manualSearchBusy = false;
+		}
 	}
 
 	async function searchMedia(query: string) {
@@ -179,6 +192,10 @@
 			(target.status === 'organized' && (target.nonCompliantFileCount ?? 0) > 0)
 		);
 	}
+
+	function taskActionLabel(task: ActiveTaskSummary) {
+		return task.type === 'execute_rename_plan' ? '正在整理' : '正在扫描';
+	}
 </script>
 
 <svelte:head>
@@ -233,6 +250,55 @@
 	</header>
 
 	<ItemDetailPanel {item} {library} />
+
+	{#if activeItemTask}
+		<section class="rounded-md border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-100">
+			<div class="font-medium">
+				{taskActionLabel(activeItemTask)} ·
+				{progressText(activeItemTask.progress) || statusText(activeItemTask.state)}
+			</div>
+			<div class="mt-1 text-xs text-sky-100/70">
+				<a
+					class="text-sky-100 underline underline-offset-4"
+					href={resolve(`/system/tasks/${activeItemTask.id}`)}>查看任务详情</a
+				>
+			</div>
+		</section>
+	{/if}
+
+	{#if item.empty}
+		<section class="rounded-md border border-border bg-muted/20 p-4">
+			<label class="flex items-center justify-between gap-4">
+				<span>
+					<span class="block text-sm font-medium text-foreground">显示空目录信息</span>
+					<span class="mt-1 block text-xs text-muted-foreground"
+						>该项当前没有可统计的视频文件，默认不会出现在媒体库列表中。</span
+					>
+				</span>
+				<Switch
+					size="sm"
+					checked={showEmptyDetails}
+					onclick={() => (showEmptyDetails = !showEmptyDetails)}
+				/>
+			</label>
+			{#if showEmptyDetails}
+				<div class="mt-4 grid gap-3 border-t border-border pt-4 text-sm md:grid-cols-3">
+					<div>
+						<div class="text-xs text-muted-foreground">状态</div>
+						<div class="mt-1 text-foreground">无视频文件</div>
+					</div>
+					<div>
+						<div class="text-xs text-muted-foreground">最近扫描</div>
+						<div class="mt-1 text-foreground">{item.lastScannedAt || '暂无记录'}</div>
+					</div>
+					<div>
+						<div class="text-xs text-muted-foreground">远端名称</div>
+						<div class="mt-1 break-all font-mono text-foreground">{item.topLevelPath}</div>
+					</div>
+				</div>
+			{/if}
+		</section>
+	{/if}
 </div>
 
 <Dialog.Root bind:open={manualDialogOpen}>
@@ -247,6 +313,8 @@
 			results={manualResults}
 			searchLabel="搜索"
 			busy={busy()}
+			searchBusy={manualSearchBusy}
+			searchError={manualSearchError}
 			onQueryChange={(value) => (manualSearch = value)}
 			onSearch={searchItem}
 			onChoose={chooseIdentity}

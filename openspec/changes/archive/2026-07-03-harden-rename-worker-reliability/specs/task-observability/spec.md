@@ -1,8 +1,4 @@
-## Purpose
-
-定义后台任务状态、进度、事件日志、任务详情和日志存储控制规则，确保用户能从任务列表、任务详情和全局日志中理解任务运行结果。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: 任务目标去重
 
@@ -61,26 +57,9 @@
 - **AND** result summary MUST include counts for succeeded, failed, and pending plan items already stored in the database
 - **AND** error or summary MUST explain that the user should scan affected directories before creating another plan
 
-### Requirement: 任务事件日志
-
-系统 SHALL 将用户可解释的任务事件记录为关联 task id 的日志。
-
-#### Scenario: 记录任务事件
-
-- **WHEN** worker 处理扫描或整理任务时发生用户需要了解的业务事件
-- **THEN** 系统 MUST 写入带 task id 的日志
-- **AND** 日志 message MUST 使用英文原文
-- **AND** 日志 context SHOULD 包含可直接展示的 summary 和结构化业务字段
-
-#### Scenario: 展示任务日志
-
-- **WHEN** UI 展示任务详情日志
-- **THEN** UI MUST 直接展示后端日志 message、summary 或 context
-- **AND** UI MUST NOT 依赖前端日志翻译映射生成另一套文案
-
 ### Requirement: 任务详情
 
-系统 SHALL 提供任务详情能力，用于查看单个任务的状态、进度、摘要、关联日志和结构化执行记录。任务详情 UI MUST 允许用户查看长路径、长摘要和结构化 context 的完整内容。
+系统 SHALL 提供任务详情能力，用于查看单个任务的状态、进度、摘要、关联日志和结构化执行记录。
 
 #### Scenario: 查看扫描任务详情
 
@@ -109,17 +88,7 @@
 - **THEN** UI MUST clearly indicate that remote files may have changed before the interruption
 - **AND** UI MUST guide the user to scan affected directories instead of rerunning the same plan
 
-#### Scenario: 查看长日志摘要
-
-- **WHEN** 任务日志 summary 或 context 超过表格默认列宽
-- **THEN** UI MUST 提供展开、详情弹窗或等价方式查看完整内容
-- **AND** UI MUST NOT 只提供不可恢复的截断文本
-
-#### Scenario: 查看长执行路径
-
-- **WHEN** execution record 的 source path、target path 或 error 超过表格默认列宽
-- **THEN** UI MUST 提供查看完整路径和错误内容的方式
-- **AND** 完整内容 MUST 保持可复制
+## ADDED Requirements
 
 ### Requirement: Execution records 保留 row 级 MOVE 结果
 
@@ -144,89 +113,3 @@
 - **WHEN** worker restarts after some rows already wrote execution records
 - **THEN** task detail MUST still show those execution records
 - **AND** the failed task summary MUST count those rows according to their stored statuses
-
-### Requirement: Item 相关 active task 可关联整理任务
-
-系统 SHALL 允许 item detail 查询当前 item 相关的 queued/running 扫描任务和整理任务。
-
-#### Scenario: item 有 active scan task
-
-- **WHEN** 当前 item 存在 queued 或 running `scan_library_item` 任务
-- **THEN** active task 查询 MUST 返回该任务
-- **AND** UI MUST 展示该任务状态和可用进度
-
-#### Scenario: item 有 active rename task
-
-- **WHEN** 当前 item 关联的 rename plan 存在 queued 或 running `execute_rename_plan` 任务
-- **THEN** active task 查询 MUST 能返回该整理任务或等价关联信息
-- **AND** UI MUST 展示该整理任务状态和可用进度
-
-#### Scenario: 刷新 item detail
-
-- **WHEN** 用户刷新 item detail 页面且相关 rename task 仍处于 queued 或 running
-- **THEN** UI MUST 仍能发现并展示该整理任务
-- **AND** UI MUST 提供进入任务详情的入口
-
-### Requirement: 整理进度摘要面向用户可读
-
-系统 SHALL 在 rename task progress 中提供适合 UI 展示的当前进度。
-
-#### Scenario: 整理任务处理中
-
-- **WHEN** `execute_rename_plan` task 正在处理 plan rows
-- **THEN** progress MUST 包含 current、total、当前 phase 和简短 message
-- **AND** progress counts MUST 包含 succeeded、failed 和 warnings
-
-#### Scenario: 整理任务完成
-
-- **WHEN** `execute_rename_plan` task 完成
-- **THEN** result summary MUST 包含 total、moved、moveFailed 和 warnings
-- **AND** UI MUST 能用该摘要展示完成结果
-
-### Requirement: 全局日志流
-
-系统 SHALL 保留全局日志页作为跨任务和系统事件流。
-
-#### Scenario: 日志关联任务
-
-- **WHEN** 全局日志中的条目存在 task id
-- **THEN** UI MUST 提供可进入对应任务详情的入口
-
-#### Scenario: 日志没有任务
-
-- **WHEN** 全局日志中的条目没有 task id
-- **THEN** UI MUST 继续展示该日志作为普通系统事件
-
-#### Scenario: 全局日志 summary 被截断
-
-- **WHEN** 全局日志 entry 的 summary 超过默认列宽
-- **THEN** UI MUST 提供查看完整 summary 的方式
-- **AND** UI MUST 保持任务详情链接可用
-
-### Requirement: 日志和记录存储控制
-
-系统 SHALL 限制任务日志和执行记录的长期存储增长。
-
-#### Scenario: 清理旧日志
-
-- **WHEN** 日志超过保留天数或最大保留行数
-- **THEN** 系统 MUST 清理最旧的可清理日志
-- **AND** 系统 MUST NOT 清理 queued/running 任务所需日志
-
-#### Scenario: 清理旧执行记录
-
-- **WHEN** execution records 超过保留策略范围
-- **THEN** 系统 MAY 清理旧的详细 execution records
-- **AND** 系统 MUST 保留关联任务的完成摘要
-
-#### Scenario: 限制日志内容大小
-
-- **WHEN** 系统写入日志 context
-- **THEN** 系统 MUST NOT 保存完整外部 API 响应、敏感配置或大量低层 trace
-- **AND** 系统 MUST 保持 context 足够小以避免单条日志占用过多存储
-
-#### Scenario: 详细日志已清理
-
-- **WHEN** 用户查看一个详细日志已被保留策略清理的历史任务
-- **THEN** UI MUST 仍展示任务完成摘要
-- **AND** UI MUST 明确显示详细日志已被清理

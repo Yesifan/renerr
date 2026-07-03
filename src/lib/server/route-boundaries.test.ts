@@ -189,7 +189,10 @@ describe('route and action boundaries', () => {
 
 		const active = await responseJson(
 			await activeApi.GET(
-				jsonEvent({}, `http://localhost/api/tasks/active?targetKey=${encodeURIComponent('libraryPath:lib1')}`) as never
+				jsonEvent(
+					{},
+					`http://localhost/api/tasks/active?targetKey=${encodeURIComponent('libraryPath:lib1')}`
+				) as never
 			)
 		);
 		expect(active).toMatchObject([

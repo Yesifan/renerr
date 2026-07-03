@@ -8,3 +8,12 @@ bun.lockb
 # Miscellaneous
 /static/
 .agents/
+.codex/
+.impeccable/
+
+# OpenSpec generated/archive content
+openspec/changes/archive/
+openspec/specs/
+
+# Generated i18n output
+src/lib/paraglide/

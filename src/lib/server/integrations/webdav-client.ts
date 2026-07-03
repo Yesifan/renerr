@@ -1,6 +1,14 @@
 import { createClient, type FileStat } from 'webdav';
-import type { FileClient, FileEntry, MoveOptions, MoveResult } from './file-client';
 import { basename, dirname, joinRemote } from '$lib/server/services/paths';
+import {
+	FileMoveError,
+	type FileClient,
+	type FileEntry,
+	type MoveOptions,
+	type MoveResult,
+	type MoveStage,
+	type MoveStep
+} from './file-client';
 
 export class WebDavFileClient implements FileClient {
 	private client;
@@ -25,18 +33,39 @@ export class WebDavFileClient implements FileClient {
 	async ensureDirectory(path: string): Promise<void> {
 		if (await this.exists(path)) return;
 		await this.client.createDirectory(path, { recursive: true });
+		if (!(await this.waitUntilExists(path))) {
+			throw new Error(`Directory was not visible after creation: ${path}`);
+		}
 	}
 
 	async moveFile(from: string, to: string, options: MoveOptions = {}): Promise<MoveResult> {
-		const intermediate = intermediateMovePath(from, to);
-		if (intermediate) {
-			await this.client.moveFile(from, intermediate, { overwrite: false });
-			await this.waitUntilExists(intermediate);
-			await this.client.moveFile(intermediate, to, { overwrite: options.overwrite ?? false });
-			return { ok: true };
+		const steps: MoveStep[] = [];
+		const fromDir = dirname(from);
+		const toDir = dirname(to);
+		const fromName = basename(from);
+		const toName = basename(to);
+		if (fromDir !== toDir && fromName !== toName) {
+			const intermediate = joinRemote(fromDir, toName);
+			const warnings: Record<string, unknown>[] = [];
+			if (await this.exists(intermediate)) {
+				warnings.push({
+					type: 'resumed_intermediate_move',
+					originalSource: from,
+					intermediate,
+					finalTarget: to
+				});
+			} else {
+				await this.moveStep('rename_in_place', from, intermediate, false, steps, {
+					intermediate
+				});
+			}
+			await this.moveStep('move_to_target', intermediate, to, options.overwrite ?? false, steps, {
+				intermediate
+			});
+			return { ok: true, steps, warnings: warnings.length ? warnings : undefined };
 		}
-		await this.client.moveFile(from, to, { overwrite: options.overwrite ?? false });
-		return { ok: true };
+		await this.moveStep('direct_move', from, to, options.overwrite ?? false, steps);
+		return { ok: true, steps };
 	}
 
 	async deletePath(path: string): Promise<void> {
@@ -52,16 +81,34 @@ export class WebDavFileClient implements FileClient {
 		await this.client.putFileContents(path, content, { overwrite });
 	}
 
-	private async waitUntilExists(path: string) {
-		for (let attempt = 0; attempt < 10; attempt += 1) {
-			if (await this.client.exists(path)) return;
-			await new Promise((resolve) => setTimeout(resolve, 300));
+	private async moveStep(
+		stage: MoveStage,
+		from: string,
+		to: string,
+		overwrite: boolean,
+		steps: MoveStep[],
+		context: { intermediate?: string; finalTarget?: string; originalSource?: string } = {}
+	) {
+		try {
+			await this.client.moveFile(from, to, { overwrite });
+			steps.push({ stage, from, to, ok: true });
+		} catch (error) {
+			throw new FileMoveError({
+				stage,
+				from,
+				to,
+				intermediate: context.intermediate,
+				cause: error,
+				message: `${stage} failed: ${from} -> ${to}: ${String(error)}`
+			});
 		}
 	}
-}
 
-function intermediateMovePath(from: string, to: string) {
-	if (dirname(from) === dirname(to)) return null;
-	if (basename(from) === basename(to)) return null;
-	return joinRemote(dirname(to), basename(from));
+	private async waitUntilExists(path: string) {
+		for (let attempt = 0; attempt < 10; attempt += 1) {
+			if (await this.client.exists(path)) return true;
+			await new Promise((resolve) => setTimeout(resolve, 300));
+		}
+		return false;
+	}
 }

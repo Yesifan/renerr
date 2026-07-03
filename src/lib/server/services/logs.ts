@@ -52,12 +52,17 @@ export function listLogsForTask(taskId: string, limit = 200) {
 }
 
 export function clearLogs() {
+	// eslint-disable-next-line drizzle/enforce-delete-with-where
 	getDb().delete(logs).run();
 }
 
-export function cleanupTaskObservability(options: { maxLogRows?: number; maxExecutionRows?: number } = {}) {
+export function cleanupTaskObservability(
+	options: { maxLogRows?: number; maxExecutionRows?: number } = {}
+) {
 	const settings = getSettings();
-	const cutoff = new Date(Date.now() - settings.logRetentionDays * 24 * 60 * 60 * 1000).toISOString();
+	const cutoff = new Date(
+		Date.now() - settings.logRetentionDays * 24 * 60 * 60 * 1000
+	).toISOString();
 	const runningTaskIds = getDb()
 		.select({ id: tasks.id })
 		.from(tasks)
@@ -112,7 +117,11 @@ function boundContext(context: unknown) {
 	};
 }
 
-function pruneOldRows(tableName: 'logs' | 'execution_records', maxRows: number, protectedTaskIds: string[]) {
+function pruneOldRows(
+	tableName: 'logs' | 'execution_records',
+	maxRows: number,
+	protectedTaskIds: string[]
+) {
 	if (maxRows <= 0) return;
 	const table = tableName === 'logs' ? logs : executionRecords;
 	const where =

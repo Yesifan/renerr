@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { ApiError } from '$lib/server/api';
 import { getDb } from '$lib/server/db';
-import { executionRecords, tasks } from '$lib/server/db/schema';
+import { executionRecords, renamePlanItems, renamePlans, tasks } from '$lib/server/db/schema';
 import { newId } from '$lib/server/id';
 import { nowIso } from '$lib/server/time';
 import { listLogsForTask } from './logs';
@@ -30,6 +31,8 @@ export function enqueueTask(type: TaskType, payload: TaskPayload, options: Enque
 	const targetKey = taskTargetKey(type, payload);
 	const existing = findActiveTask(type, targetKey);
 	if (existing) return existing;
+	if (type === 'execute_rename_plan')
+		assertRenamePlanExecutable(String(payload.planId ?? ''), targetKey);
 	getDb()
 		.insert(tasks)
 		.values({
@@ -45,11 +48,47 @@ export function enqueueTask(type: TaskType, payload: TaskPayload, options: Enque
 	return getTask(id);
 }
 
+function assertRenamePlanExecutable(planId: string, targetKey: string) {
+	const db = getDb();
+	const plan = db.select().from(renamePlans).where(eq(renamePlans.id, planId)).get();
+	if (!plan) {
+		throw new ApiError('plan.invalid', 'Plan not found', 404);
+	}
+	if (plan.status !== 'confirmed') {
+		throw new ApiError('plan.already_executed', 'Rename plan has already been executed', 409, {
+			planId,
+			status: plan.status
+		});
+	}
+	const terminal = db
+		.select()
+		.from(tasks)
+		.where(
+			and(
+				eq(tasks.type, 'execute_rename_plan'),
+				eq(tasks.targetKey, targetKey),
+				inArray(tasks.state, terminalStates)
+			)
+		)
+		.orderBy(asc(tasks.createdAt))
+		.limit(1)
+		.get();
+	if (terminal) {
+		throw new ApiError('plan.already_executed', 'Rename plan has already been executed', 409, {
+			planId,
+			taskId: terminal.id,
+			state: terminal.state
+		});
+	}
+}
+
 function findActiveTask(type: string, targetKey: string) {
 	const row = getDb()
 		.select()
 		.from(tasks)
-		.where(and(eq(tasks.type, type), eq(tasks.targetKey, targetKey), inArray(tasks.state, activeStates)))
+		.where(
+			and(eq(tasks.type, type), eq(tasks.targetKey, targetKey), inArray(tasks.state, activeStates))
+		)
 		.orderBy(asc(tasks.createdAt))
 		.limit(1)
 		.get();
@@ -67,8 +106,9 @@ export function listTasks(limit = 100) {
 }
 
 export function listActiveTasks(targetKeys?: string[]) {
-	const where = targetKeys?.length
-		? and(inArray(tasks.state, activeStates), inArray(tasks.targetKey, targetKeys))
+	const expandedTargetKeys = targetKeys?.length ? expandActiveTargetKeys(targetKeys) : undefined;
+	const where = expandedTargetKeys?.length
+		? and(inArray(tasks.state, activeStates), inArray(tasks.targetKey, expandedTargetKeys))
 		: inArray(tasks.state, activeStates);
 	return getDb()
 		.select()
@@ -77,6 +117,24 @@ export function listActiveTasks(targetKeys?: string[]) {
 		.orderBy(desc(tasks.createdAt))
 		.all()
 		.map(mapActiveTask);
+}
+
+function expandActiveTargetKeys(targetKeys: string[]) {
+	const keys = new Set(targetKeys);
+	const itemIds = targetKeys
+		.filter((key) => key.startsWith('libraryItem:'))
+		.map((key) => key.slice('libraryItem:'.length))
+		.filter(Boolean);
+	if (!itemIds.length) return [...keys];
+	const planIds = getDb()
+		.select({ planId: renamePlanItems.planId })
+		.from(renamePlanItems)
+		.where(inArray(renamePlanItems.libraryItemId, itemIds))
+		.all();
+	for (const row of planIds) {
+		keys.add(`renamePlan:${row.planId}`);
+	}
+	return [...keys];
 }
 
 export function getTask(id: string) {
@@ -107,15 +165,51 @@ export function getTaskDetail(id: string) {
 }
 
 export function failRunningTasksOnStartup() {
-	getDb()
-		.update(tasks)
-		.set({
-			state: 'failed',
-			error: 'Worker restarted while task was running',
-			finishedAt: nowIso()
-		})
-		.where(eq(tasks.state, 'running'))
-		.run();
+	const db = getDb();
+	const running = db.select().from(tasks).where(eq(tasks.state, 'running')).all();
+	for (const task of running) {
+		const isRenameTask = task.type === 'execute_rename_plan';
+		const summary = isRenameTask ? interruptedRenameSummary(task.payloadJson) : undefined;
+		db.update(tasks)
+			.set({
+				state: 'failed',
+				error: 'Worker restarted while task was running',
+				resultSummaryJson: summary ? JSON.stringify(summary) : task.resultSummaryJson,
+				finishedAt: nowIso()
+			})
+			.where(eq(tasks.id, task.id))
+			.run();
+		if (isRenameTask) {
+			const planId = String((JSON.parse(task.payloadJson || '{}') as TaskPayload).planId ?? '');
+			if (planId) {
+				db.update(renamePlans).set({ status: 'executed' }).where(eq(renamePlans.id, planId)).run();
+			}
+		}
+	}
+}
+
+function interruptedRenameSummary(payloadJson: string) {
+	const payload = JSON.parse(payloadJson || '{}') as TaskPayload;
+	const planId = String(payload.planId ?? '');
+	const rows = planId
+		? getDb().select().from(renamePlanItems).where(eq(renamePlanItems.planId, planId)).all()
+		: [];
+	const counts = rows.reduce(
+		(acc, row) => {
+			if (row.status === 'succeeded') acc.succeeded += 1;
+			else if (row.status === 'failed' || row.status === 'conflict') acc.failed += 1;
+			else acc.pending += 1;
+			return acc;
+		},
+		{ succeeded: 0, failed: 0, pending: 0 }
+	);
+	return {
+		interrupted: true,
+		reason: 'worker_restarted',
+		planId,
+		...counts,
+		guidance: 'Scan affected directories before creating another rename plan.'
+	};
 }
 
 export function claimNextTask() {
@@ -154,11 +248,7 @@ export function finishTask(
 		finishedAt: nowIso()
 	};
 	if (resultSummary) values.resultSummaryJson = JSON.stringify(resultSummary);
-	getDb()
-		.update(tasks)
-		.set(values)
-		.where(eq(tasks.id, id))
-		.run();
+	getDb().update(tasks).set(values).where(eq(tasks.id, id)).run();
 }
 
 export function updateTaskProgress(id: string, progress: unknown) {
@@ -223,3 +313,4 @@ function mapExecutionRecord(row: typeof executionRecords.$inferSelect) {
 }
 
 const activeStates = ['queued', 'running'];
+const terminalStates = ['succeeded', 'partially_failed', 'failed'];

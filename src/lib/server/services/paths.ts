@@ -46,6 +46,7 @@ export function isVideoPath(value: string) {
 export function sanitizeSegment(input: string) {
 	const cleaned = input
 		.normalize('NFKC')
+		// eslint-disable-next-line no-control-regex
 		.replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ')
 		.replace(/\s+/g, ' ')
 		.trim()
