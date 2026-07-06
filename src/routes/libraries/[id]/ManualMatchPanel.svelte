@@ -59,12 +59,24 @@
 					disabled={busy}
 					onclick={() => onChoose(item, result)}
 				>
-					<div>
-						<div class="text-sm font-medium text-foreground">{result.title}</div>
-						<div class="mt-1 text-xs text-muted-foreground">
-							{result.originalTitle}
-							{#if result.year}
-								· {result.year}
+					<div class="flex min-w-0 gap-3">
+						<div class="h-20 w-14 shrink-0 overflow-hidden rounded bg-muted">
+							{#if result.posterUrl}
+								<img class="h-full w-full object-cover" src={result.posterUrl} alt={result.title} />
+							{/if}
+						</div>
+						<div class="min-w-0">
+							<div class="text-sm font-medium text-foreground">{result.title}</div>
+							<div class="mt-1 text-xs text-muted-foreground">
+								{result.originalTitle}
+								{#if result.year}
+									· {result.year}
+								{/if}
+							</div>
+							{#if result.overview}
+								<div class="mt-2 line-clamp-2 text-xs text-muted-foreground">
+									{result.overview}
+								</div>
 							{/if}
 						</div>
 					</div>

@@ -126,35 +126,17 @@ export const tasks = sqliteTable(
 	]
 );
 
-export const executionRecords = sqliteTable(
-	'execution_records',
+export const taskDetailLines = sqliteTable(
+	'task_detail_lines',
 	{
 		id: text('id').primaryKey(),
 		taskId: text('task_id').notNull(),
-		planItemId: text('plan_item_id'),
-		sourcePath: text('source_path').notNull(),
-		targetPath: text('target_path').notNull(),
-		status: text('status').notNull(),
-		error: text('error'),
-		contextJson: text('context_json').notNull().default('{}'),
+		level: text('level', { enum: ['error', 'warn', 'info'] }).notNull(),
+		message: text('message').notNull(),
 		createdAt: text('created_at').notNull()
 	},
 	(table) => [
-		index('execution_record_task').on(table.taskId, table.createdAt),
-		index('execution_record_created_at').on(table.createdAt)
+		index('task_detail_line_task').on(table.taskId, table.createdAt),
+		index('task_detail_line_created_at').on(table.createdAt)
 	]
-);
-
-export const logs = sqliteTable(
-	'logs',
-	{
-		id: text('id').primaryKey(),
-		taskId: text('task_id'),
-		time: text('time').notNull(),
-		level: text('level', { enum: ['error', 'warn', 'info'] }).notNull(),
-		component: text('component').notNull(),
-		message: text('message').notNull(),
-		contextJson: text('context_json').notNull().default('{}')
-	},
-	(table) => [index('log_task').on(table.taskId, table.time), index('log_time').on(table.time)]
 );

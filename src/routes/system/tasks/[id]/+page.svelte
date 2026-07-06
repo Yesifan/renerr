@@ -5,7 +5,6 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Empty from '$lib/components/ui/empty';
-	import * as Table from '$lib/components/ui/table';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SectionPanel from '$lib/components/SectionPanel.svelte';
 	import type { TaskDetail } from '$lib/schemas/domain';
@@ -37,28 +36,13 @@
 	function json(value: unknown) {
 		return JSON.stringify(value ?? {}, null, 2);
 	}
-
-	function detailText(value: unknown) {
-		if (typeof value === 'string') return value;
-		return json(value);
-	}
-
-	function contextSummary(value: unknown) {
-		if (!value || typeof value !== 'object') return 'context';
-		const context = value as { failureStage?: unknown; intermediatePath?: unknown };
-		const parts = [];
-		if (typeof context.failureStage === 'string') parts.push(`stage: ${context.failureStage}`);
-		if (typeof context.intermediatePath === 'string')
-			parts.push(`intermediate: ${context.intermediatePath}`);
-		return parts.join(' | ') || 'context';
-	}
 </script>
 
 <svelte:head>
 	<title>任务详情 - Renarr</title>
 </svelte:head>
 
-<PageHeader title="任务详情" description={detail?.task.type ?? params.id} {message}>
+<PageHeader title="任务详情" {message}>
 	{#snippet actions()}
 		<Button href={resolve('/system/tasks')} variant="outline">返回任务</Button>
 		<Button disabled={busy} onclick={() => refresh()} variant="outline">刷新</Button>
@@ -100,114 +84,29 @@
 			{/if}
 		</SectionPanel>
 
-		<SectionPanel title="任务日志">
-			{#if detail.logs.length}
-				<Table.Root>
-					<Table.Header>
-						<Table.Row>
-							<Table.Head>时间</Table.Head>
-							<Table.Head>级别</Table.Head>
-							<Table.Head>组件</Table.Head>
-							<Table.Head>消息</Table.Head>
-							<Table.Head>摘要</Table.Head>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{#each detail.logs as entry (entry.id)}
-							<Table.Row>
-								<Table.Cell>{entry.time}</Table.Cell>
-								<Table.Cell>
-									<Badge
-										variant="outline"
-										class={statusClass(entry.level === 'error' ? 'failed' : entry.level)}
-										>{entry.level}</Badge
-									>
-								</Table.Cell>
-								<Table.Cell class="font-medium text-foreground">{entry.component}</Table.Cell>
-								<Table.Cell>{entry.message}</Table.Cell>
-								<Table.Cell class="max-w-[420px]">
-									{@const summary = entry.summary || json(entry.context)}
-									<details>
-										<summary class="cursor-pointer truncate text-foreground">{summary}</summary>
-										<pre
-											class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs text-muted-foreground">{summary}</pre>
-									</details>
-								</Table.Cell>
-							</Table.Row>
-						{/each}
-					</Table.Body>
-				</Table.Root>
+		<SectionPanel title="运行记录">
+			{#if detail.lines.length}
+				<ol class="flex flex-col gap-2 text-sm">
+					{#each detail.lines as line (line.id)}
+						<li
+							class={[
+								'rounded-md border border-border bg-background px-3 py-2 text-foreground',
+								line.level === 'error' && 'border-destructive/40 text-destructive',
+								line.level === 'warn' && 'border-yellow-500/30 text-yellow-300'
+							]}
+						>
+							{line.message}
+						</li>
+					{/each}
+				</ol>
 			{:else}
 				<Empty.Root>
 					<Empty.Header>
-						<Empty.Title>暂无任务日志</Empty.Title>
+						<Empty.Title>暂无运行记录</Empty.Title>
 						<Empty.Description>任务运行中的业务事件会显示在这里。</Empty.Description>
 					</Empty.Header>
 				</Empty.Root>
 			{/if}
 		</SectionPanel>
-
-		{#if detail.executionRecords.length}
-			<SectionPanel title="执行记录">
-				<Table.Root>
-					<Table.Header>
-						<Table.Row>
-							<Table.Head>时间</Table.Head>
-							<Table.Head>状态</Table.Head>
-							<Table.Head>源路径</Table.Head>
-							<Table.Head>目标路径</Table.Head>
-							<Table.Head>错误</Table.Head>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{#each detail.executionRecords as record (record.id)}
-							<Table.Row>
-								<Table.Cell>{record.createdAt}</Table.Cell>
-								<Table.Cell>
-									<Badge variant="outline" class={statusClass(record.status)}>{record.status}</Badge
-									>
-								</Table.Cell>
-								<Table.Cell class="max-w-[320px]">
-									<details>
-										<summary class="cursor-pointer truncate font-mono text-xs"
-											>{record.sourcePath}</summary
-										>
-										<pre
-											class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs text-muted-foreground">{record.sourcePath}</pre>
-									</details>
-								</Table.Cell>
-								<Table.Cell class="max-w-[320px]">
-									<details>
-										<summary class="cursor-pointer truncate font-mono text-xs"
-											>{record.targetPath}</summary
-										>
-										<pre
-											class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs text-muted-foreground">{record.targetPath}</pre>
-									</details>
-								</Table.Cell>
-								<Table.Cell class="max-w-[320px] text-destructive">
-									{#if record.error}
-										<details>
-											<summary class="cursor-pointer truncate">{record.error}</summary>
-											<pre
-												class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs text-muted-foreground">{record.error}</pre>
-										</details>
-									{/if}
-									<details class={record.error ? 'mt-2' : ''}>
-										<summary class="cursor-pointer truncate text-muted-foreground"
-											>{contextSummary(record.context)}</summary
-										>
-										<pre
-											class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs text-muted-foreground">{detailText(
-												record.context
-											)}</pre>
-									</details>
-								</Table.Cell>
-							</Table.Row>
-						{/each}
-					</Table.Body>
-				</Table.Root>
-			</SectionPanel>
-		{/if}
 	</div>
 {/if}

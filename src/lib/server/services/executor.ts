@@ -5,15 +5,13 @@ import {
 	type MoveStep
 } from '$lib/server/integrations/file-client';
 import { getDb } from '$lib/server/db';
-import { executionRecords, renamePlanItems, renamePlans } from '$lib/server/db/schema';
-import { newId } from '$lib/server/id';
-import { nowIso } from '$lib/server/time';
+import { renamePlanItems, renamePlans } from '$lib/server/db/schema';
 import { dirname, joinRemote, sidecarExtensions, stripExt } from './paths';
 import { getClientForSource, getLibrary } from './sources';
-import { log } from './logs';
 import { metadataTargets } from './naming';
 import { getSettings } from './settings';
 import { enqueueTask, updateTaskProgress } from './tasks';
+import { createTaskRecorder, type TaskRecorder } from './task-recorder';
 
 type RenameTaskState = 'succeeded' | 'partially_failed' | 'failed';
 type RenamePlanRow = typeof renamePlanItems.$inferSelect;
@@ -59,6 +57,7 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 	const client = getClientForSource(library.sourceId);
 	const rows = db.select().from(renamePlanItems).where(eq(renamePlanItems.planId, planId)).all();
 	const counters: ExecutionCounters = { ok: 0, failed: 0, warnings: 0 };
+	const recorder = createTaskRecorder(taskId, { component: 'RenameExecutor', planId }, 'worker');
 	const metadataDone = new Set<string>();
 	const works: RowWork[] = rows.map((row) => ({
 		row,
@@ -70,12 +69,7 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 		moveSteps: []
 	}));
 
-	log('info', 'RenameExecutor', 'Rename plan started', {
-		taskId,
-		planId,
-		libraryPathId: plan.libraryPathId,
-		summary: `Rename plan started: ${rows.length} files`
-	});
+	recorder.info(`Rename plan started: ${rows.length} files`);
 	updateRenameProgress(taskId, 'moving', 'Preparing rename plan', 0, rows.length, {
 		succeeded: counters.ok,
 		failed: counters.failed,
@@ -97,14 +91,14 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 			work.originalSource
 		);
 		await executeRow(client, {
-			taskId,
 			planId,
 			libraryMediaType: library.mediaType,
 			metadataDone,
 			work,
-			counters
+			counters,
+			recorder
 		});
-		persistRowResult(taskId, planId, work);
+		persistRowResult(planId, work, recorder);
 		if (work.status === 'succeeded') counters.ok += 1;
 		else counters.failed += 1;
 		updateRenameProgress(
@@ -138,30 +132,22 @@ export async function executeRenamePlan(taskId: string, planId: string) {
 		failed: counters.failed,
 		warnings: counters.warnings
 	});
-	log(
-		state === 'failed' ? 'error' : counters.failed > 0 ? 'warn' : 'info',
-		'RenameExecutor',
-		'Rename plan finished',
-		{
-			taskId,
-			planId,
-			state,
-			...summary,
-			summary: `Rename plan finished: ${counters.ok} moved, ${counters.failed} failed, ${counters.warnings} warnings`
-		}
-	);
+	const finishMessage = `Rename plan finished: ${counters.ok} moved, ${counters.failed} failed, ${counters.warnings} warnings`;
+	if (state === 'failed') recorder.error(finishMessage, { state, ...summary });
+	else if (counters.failed > 0) recorder.warn(finishMessage, { state, ...summary });
+	else recorder.info(finishMessage, { state, ...summary });
 	return { state, summary };
 }
 
 async function executeRow(
 	client: RenameClient,
 	input: {
-		taskId: string;
 		planId: string;
 		libraryMediaType: 'movie' | 'tv';
 		metadataDone: Set<string>;
 		work: RowWork;
 		counters: ExecutionCounters;
+		recorder: TaskRecorder;
 	}
 ) {
 	const { work } = input;
@@ -219,15 +205,15 @@ function updateRenameProgress(
 async function runPostMoveActions(
 	client: RenameClient,
 	input: {
-		taskId: string;
 		planId: string;
 		libraryMediaType: 'movie' | 'tv';
 		metadataDone: Set<string>;
 		work: RowWork;
 		counters: ExecutionCounters;
+		recorder: TaskRecorder;
 	}
 ) {
-	const { taskId, planId, work } = input;
+	const { planId, work, recorder } = input;
 	const sidecars = await discoverExistingSidecars(client, work.originalSource);
 	for (const sidecar of sidecars) {
 		try {
@@ -251,14 +237,12 @@ async function runPostMoveActions(
 				intermediatePath: error instanceof FileMoveError ? error.intermediate : undefined,
 				error: String(error)
 			});
-			log('warn', 'RenameExecutor', 'Sidecar move failed', {
-				taskId,
+			recorder.warn(`${sidecar} sidecar move failed: ${String(error)}`, {
 				planId,
 				planItemId: work.row.id,
 				libraryItemId: work.itemId,
 				sidecar,
-				error: String(error),
-				summary: `${sidecar} sidecar move failed: ${String(error)}`
+				err: error
 			});
 		}
 	}
@@ -271,63 +255,56 @@ async function runPostMoveActions(
 			target: work.target,
 			error: String(error)
 		});
-		log('warn', 'RenameExecutor', 'Metadata write failed', {
-			taskId,
+		recorder.warn(`${work.target} metadata write failed: ${String(error)}`, {
 			planId,
 			planItemId: work.row.id,
 			libraryItemId: work.itemId,
 			target: work.target,
-			error: String(error),
-			summary: `${work.target} metadata write failed: ${String(error)}`
+			err: error
 		});
 	}
 }
 
-function persistRowResult(taskId: string, planId: string, work: RowWork) {
+function persistRowResult(planId: string, work: RowWork, recorder: TaskRecorder) {
 	const db = getDb();
 	const status = work.status ?? 'failed';
 	db.update(renamePlanItems).set({ status }).where(eq(renamePlanItems.id, work.row.id)).run();
-	db.insert(executionRecords)
-		.values({
-			id: newId(),
-			taskId,
-			planItemId: work.row.id,
-			sourcePath: work.originalSource,
-			targetPath: work.target,
-			status,
-			error: work.error,
-			contextJson: JSON.stringify({
-				originalSource: work.originalSource,
-				finalTarget: work.target,
-				moveSteps: work.moveSteps,
-				failureStage: work.failureStage,
-				intermediatePath: work.intermediatePath,
-				warnings: work.warnings,
-				overwritten: work.overwrite,
-				error: work.error
-			}),
-			createdAt: nowIso()
-		})
-		.run();
-	log(
-		status === 'succeeded' ? 'info' : 'error',
-		'RenameExecutor',
-		status === 'succeeded' ? 'File move succeeded' : 'File move failed',
-		{
-			taskId,
-			planId,
-			planItemId: work.row.id,
-			libraryItemId: work.itemId,
-			sourcePath: work.originalSource,
-			targetPath: work.target,
-			failureStage: work.failureStage,
-			intermediatePath: work.intermediatePath,
-			error: work.error,
-			summary:
-				status === 'succeeded'
-					? `${work.originalSource} -> ${work.target}`
-					: `${work.originalSource} -> ${work.target}: ${work.error}`
-		}
+	const context = {
+		planId,
+		planItemId: work.row.id,
+		libraryItemId: work.itemId,
+		sourcePath: work.originalSource,
+		targetPath: work.target,
+		failureStage: work.failureStage,
+		intermediatePath: work.intermediatePath,
+		warnings: work.warnings,
+		overwrite: work.overwrite,
+		error: work.error
+	};
+	for (const step of work.moveSteps) {
+		recorder.info(`FileClient ${step.stage}: ${step.from} -> ${step.to}`, context);
+	}
+	for (const warning of work.warnings) {
+		const type = typeof warning.type === 'string' ? warning.type : 'warning';
+		recorder.warn(`${work.originalSource} warning: ${type}`, { ...context, warning });
+	}
+	if (status === 'succeeded') {
+		const overwriteText = work.overwrite ? ' with overwrite' : '';
+		recorder.info(
+			`${work.originalSource} moved to ${work.target}${overwriteText} successfully`,
+			context
+		);
+		return;
+	}
+	if (status === 'conflict') {
+		recorder.warn(`${work.originalSource} target conflict at ${work.target}`, context);
+		return;
+	}
+	const stageText = work.failureStage ? ` during ${work.failureStage}` : '';
+	const intermediateText = work.intermediatePath ? ` via ${work.intermediatePath}` : '';
+	recorder.error(
+		`${work.originalSource} move to ${work.target} failed${stageText}${intermediateText}: ${work.error}`,
+		context
 	);
 }
 

@@ -8,10 +8,10 @@ import { isVideoPath, joinRemote, normalizeRemotePath } from './paths';
 import { parseMovieName, parseTvName, normalizeTitle } from './parser';
 import { isCompliantVideo } from './compliance';
 import { searchTmdb } from './tmdb';
-import { log } from './logs';
-import { createPlanForItem } from './planner';
 import { enqueueTask, updateTaskProgress } from './tasks';
 import { ApiError } from '$lib/server/api';
+import { createNodeLogger } from '$lib/server/logger';
+import { createTaskRecorder, type TaskRecorder } from './task-recorder';
 
 type LibraryItem = typeof libraryItems.$inferSelect;
 type ScanSummary = {
@@ -22,6 +22,9 @@ type ScanSummary = {
 	warnings: number;
 };
 
+const scannerLogger = createNodeLogger('server', { component: 'LibraryScanner' });
+const tmdbLogger = createNodeLogger('server', { component: 'TmdbMatcher' });
+
 export async function scanLibraryPath(
 	libraryPathId: string,
 	taskId?: string
@@ -29,11 +32,17 @@ export async function scanLibraryPath(
 	const library = getLibrary(libraryPathId);
 	const client = getClientForSource(library.sourceId);
 	const root = normalizeRemotePath(library.path);
-	log('info', 'LibraryScanner', 'Library scan started', {
-		taskId,
-		libraryPathId,
-		summary: `Library scan started: ${library.path}`
-	});
+	const recorder = taskId
+		? createTaskRecorder(taskId, { component: 'LibraryScanner' }, 'worker')
+		: null;
+	scannerLogger.info(
+		{
+			libraryPathId,
+			taskId
+		},
+		'Library scan started'
+	);
+	recorder?.info(`Library scan started: ${library.path}`);
 	updateScanProgress(taskId, 'listing', 'Listing library root');
 	const entries = await client.listDirectory(root);
 	const topEntries = entries.filter(
@@ -82,13 +91,20 @@ export async function scanLibraryPath(
 		inheritIdentityFromRenameTarget(id);
 		const item = getLibraryItem(id);
 		const status = item.status;
-		if (status === 'pending_review' || status === 'identified') {
+		if (status === 'pending_review') {
 			await refreshItemStats(id);
+			summary.skipped += 1;
+			continue;
+		}
+		if (status === 'identified') {
+			await refreshItemStats(id);
+			enqueuePlanCreationForItem(getLibraryItem(id), recorder);
 			summary.skipped += 1;
 			continue;
 		}
 		if (status === 'organized') {
 			await refreshItemStats(id);
+			enqueuePlanCreationForItem(getLibraryItem(id), recorder);
 			summary.skipped += 1;
 			continue;
 		}
@@ -97,7 +113,7 @@ export async function scanLibraryPath(
 			const videos = await refreshItemStats(id);
 			if (videos.length === 0) {
 				summary.skipped += 1;
-				logEmptyItem(taskId, id, item.topLevelPath);
+				logEmptyItem(recorder, id, item.topLevelPath);
 				continue;
 			}
 			let recognition: RecognitionResult;
@@ -107,37 +123,42 @@ export async function scanLibraryPath(
 				markPending(id, 'tmdb_error', []);
 				recognition = { status: 'pending_review', reason: 'tmdb_error' };
 				summary.warnings += 1;
-				log('warn', 'TmdbMatcher', 'TMDB recognition failed for item', {
-					taskId,
-					libraryItemId: id,
-					error: String(error),
-					summary: `${item.topLevelPath} recognition failed: ${String(error)}`
-				});
+				tmdbLogger.warn(
+					{
+						taskId,
+						libraryItemId: id,
+						err: error
+					},
+					'TMDB recognition failed for item'
+				);
+				recorder?.warn(`${item.topLevelPath} recognition failed: ${String(error)}`);
 			}
 			const refreshed = getLibraryItem(id);
 			if (recognition.status === 'recognized' && refreshed.sourceMediaId) {
 				summary.recognized += 1;
-				log('info', 'TmdbMatcher', 'Item recognized', {
-					taskId,
-					libraryItemId: id,
-					topLevelPath: item.topLevelPath,
-					mediaType: refreshed.sourceMediaType,
-					title: refreshed.title,
-					sourceMediaId: refreshed.sourceMediaId,
-					summary: `${item.topLevelPath} recognized as ${refreshed.sourceMediaType} ${refreshed.title}`
-				});
+				tmdbLogger.info(
+					{
+						libraryItemId: id,
+						topLevelPath: item.topLevelPath,
+						mediaType: refreshed.sourceMediaType,
+						title: refreshed.title,
+						sourceMediaId: refreshed.sourceMediaId
+					},
+					'Item recognized'
+				);
+				recorder?.info(
+					`${item.topLevelPath} recognized as ${refreshed.sourceMediaType} ${refreshed.title}`
+				);
+				enqueuePlanCreationForItem(refreshed, recorder);
 			} else {
 				summary.failed += 1;
 				logRecognitionFailed(
-					taskId,
+					recorder,
 					id,
 					item.topLevelPath,
+					refreshed,
 					recognition.status === 'pending_review' ? recognition.reason : 'unknown'
 				);
-			}
-			if (library.autoOrganize && refreshed.status === 'identified') {
-				const plan = await createPlanForItem(id, 'auto');
-				enqueueTask('execute_rename_plan', { planId: plan.id });
 			}
 		}
 	}
@@ -157,12 +178,17 @@ export async function scanLibraryPath(
 		total: topEntries.length,
 		counts: summary
 	});
-	log('info', 'LibraryScanner', 'Library scan finished', {
-		taskId,
-		libraryPathId,
-		count: seen.size,
-		summary: `Library scan finished: ${summary.recognized} recognized, ${summary.failed} failed, ${summary.skipped} skipped`
-	});
+	scannerLogger.info(
+		{
+			libraryPathId,
+			count: seen.size,
+			taskId
+		},
+		'Library scan finished'
+	);
+	recorder?.info(
+		`Library scan finished: ${summary.recognized} recognized, ${summary.failed} failed, ${summary.skipped} skipped`
+	);
 	return summary;
 }
 
@@ -210,11 +236,11 @@ export async function scanLibraryItem(itemId: string, taskId?: string): Promise<
 	const item = getDb().select().from(libraryItems).where(eq(libraryItems.id, itemId)).get();
 	if (!item) throw new ApiError('item.not_found', 'Library item not found', 404);
 	const summary: ScanSummary = { processed: 0, recognized: 0, failed: 0, skipped: 0, warnings: 0 };
-	log('info', 'LibraryScanner', 'Item scan started', {
-		taskId,
-		libraryItemId: itemId,
-		summary: `Item scan started: ${item.topLevelPath}`
-	});
+	const recorder = taskId
+		? createTaskRecorder(taskId, { component: 'LibraryScanner' }, 'worker')
+		: null;
+	scannerLogger.info({ taskId, libraryItemId: itemId }, 'Item scan started');
+	recorder?.info(`Item scan started: ${item.topLevelPath}`);
 	updateScanProgress(taskId, 'scanning_items', `Scanning ${item.topLevelPath}`, {
 		current: 1,
 		total: 1,
@@ -222,7 +248,7 @@ export async function scanLibraryItem(itemId: string, taskId?: string): Promise<
 		counts: summary
 	});
 	const status = item.status;
-	if (status !== 'organized' && status !== 'unidentified') {
+	if (status !== 'organized' && status !== 'unidentified' && status !== 'identified') {
 		throw new ApiError(
 			'item.scan_not_allowed',
 			'Library item cannot be scanned in its current status',
@@ -233,20 +259,22 @@ export async function scanLibraryItem(itemId: string, taskId?: string): Promise<
 		);
 	}
 	const videos = await refreshItemStats(itemId);
+	if (status === 'identified') {
+		summary.skipped += 1;
+		enqueuePlanCreationForItem(getLibraryItem(itemId), recorder);
+		finishItemScanLog(recorder, itemId, item.topLevelPath, status, summary);
+		return summary;
+	}
 	if (status === 'organized') {
 		summary.skipped += 1;
-		log('info', 'LibraryScanner', 'Item scan finished', {
-			taskId,
-			libraryItemId: itemId,
-			status,
-			summary: `Item scan finished: ${item.topLevelPath}`
-		});
+		enqueuePlanCreationForItem(getLibraryItem(itemId), recorder);
+		finishItemScanLog(recorder, itemId, item.topLevelPath, status, summary);
 		return summary;
 	}
 	summary.processed += 1;
 	if (videos.length === 0) {
 		summary.skipped += 1;
-		logEmptyItem(taskId, itemId, item.topLevelPath);
+		logEmptyItem(recorder, itemId, item.topLevelPath);
 		return summary;
 	}
 	let recognition: RecognitionResult;
@@ -256,31 +284,40 @@ export async function scanLibraryItem(itemId: string, taskId?: string): Promise<
 		markPending(itemId, 'tmdb_error', []);
 		recognition = { status: 'pending_review', reason: 'tmdb_error' };
 		summary.warnings += 1;
-		log('warn', 'TmdbMatcher', 'TMDB recognition failed for item', {
-			taskId,
-			libraryItemId: itemId,
-			error: String(error),
-			summary: `${item.topLevelPath} recognition failed: ${String(error)}`
-		});
+		tmdbLogger.warn(
+			{
+				taskId,
+				libraryItemId: itemId,
+				err: error
+			},
+			'TMDB recognition failed for item'
+		);
+		recorder?.warn(`${item.topLevelPath} recognition failed: ${String(error)}`);
 	}
 	const refreshed = getLibraryItem(itemId);
 	if (recognition.status === 'recognized' && refreshed.sourceMediaId) {
 		summary.recognized += 1;
-		log('info', 'TmdbMatcher', 'Item recognized', {
-			taskId,
-			libraryItemId: itemId,
-			topLevelPath: item.topLevelPath,
-			mediaType: refreshed.sourceMediaType,
-			title: refreshed.title,
-			sourceMediaId: refreshed.sourceMediaId,
-			summary: `${item.topLevelPath} recognized as ${refreshed.sourceMediaType} ${refreshed.title}`
-		});
+		tmdbLogger.info(
+			{
+				libraryItemId: itemId,
+				topLevelPath: item.topLevelPath,
+				mediaType: refreshed.sourceMediaType,
+				title: refreshed.title,
+				sourceMediaId: refreshed.sourceMediaId
+			},
+			'Item recognized'
+		);
+		recorder?.info(
+			`${item.topLevelPath} recognized as ${refreshed.sourceMediaType} ${refreshed.title}`
+		);
+		enqueuePlanCreationForItem(refreshed, recorder);
 	} else {
 		summary.failed += 1;
 		logRecognitionFailed(
-			taskId,
+			recorder,
 			itemId,
 			item.topLevelPath,
+			refreshed,
 			recognition.status === 'pending_review' ? recognition.reason : 'unknown'
 		);
 	}
@@ -289,12 +326,7 @@ export async function scanLibraryItem(itemId: string, taskId?: string): Promise<
 		total: 1,
 		counts: summary
 	});
-	log('info', 'LibraryScanner', 'Item scan finished', {
-		taskId,
-		libraryItemId: itemId,
-		status,
-		summary: `Item scan finished: ${summary.recognized} recognized, ${summary.failed} failed`
-	});
+	finishItemScanLog(recorder, itemId, item.topLevelPath, status, summary);
 	return summary;
 }
 
@@ -401,27 +433,65 @@ function updateScanProgress(
 }
 
 function logRecognitionFailed(
-	taskId: string | undefined,
+	recorder: TaskRecorder | null,
 	libraryItemId: string,
 	topLevelPath: string,
+	item: LibraryItem,
 	reason: string
 ) {
-	log('warn', 'TmdbMatcher', 'Item recognition failed', {
-		taskId,
-		libraryItemId,
-		topLevelPath,
-		reason,
-		summary: `${topLevelPath} recognition failed: ${reason}`
-	});
+	tmdbLogger.warn(
+		{
+			libraryItemId,
+			topLevelPath,
+			reason
+		},
+		'Item recognition failed'
+	);
+	const candidates = candidateTitles(item);
+	if (candidates.length) {
+		recorder?.info(`${topLevelPath} candidates set to ${candidates.join(', ')}`);
+	}
+	recorder?.warn(`${topLevelPath} could not be recognized: ${reason}`);
 }
 
-function logEmptyItem(taskId: string | undefined, libraryItemId: string, topLevelPath: string) {
-	log('info', 'LibraryScanner', 'Item has no videos', {
-		taskId,
-		libraryItemId,
-		topLevelPath,
-		summary: `${topLevelPath} has no videos`
-	});
+function logEmptyItem(recorder: TaskRecorder | null, libraryItemId: string, topLevelPath: string) {
+	scannerLogger.info(
+		{
+			libraryItemId,
+			topLevelPath
+		},
+		'Item has no videos'
+	);
+	recorder?.info(`${topLevelPath} skipped because it has no videos`);
+}
+
+function enqueuePlanCreationForItem(item: LibraryItem, recorder: TaskRecorder | null) {
+	if (item.status === 'pending_review') return null;
+	if (item.status === 'organized' && item.nonCompliantFileCount <= 0) return null;
+	if (item.status !== 'identified' && item.status !== 'organized') return null;
+	const task = enqueueTask('create_rename_plan_for_item', { libraryItemId: item.id });
+	recorder?.info(`${item.topLevelPath} queued rename plan task ${task.id}`);
+	return task;
+}
+
+function finishItemScanLog(
+	recorder: TaskRecorder | null,
+	libraryItemId: string,
+	topLevelPath: string,
+	status: string,
+	summary: ScanSummary
+) {
+	scannerLogger.info({ libraryItemId, status }, 'Item scan finished');
+	recorder?.info(
+		`Item scan finished: ${topLevelPath}, ${summary.recognized} recognized, ${summary.failed} failed`
+	);
+}
+
+function candidateTitles(item: LibraryItem) {
+	const parsed = JSON.parse(item.recognitionCandidatesJson || '[]') as { title?: unknown }[];
+	return parsed
+		.map((candidate) => (typeof candidate.title === 'string' ? candidate.title : null))
+		.filter((title): title is string => Boolean(title));
 }
 
 async function collectVideos(

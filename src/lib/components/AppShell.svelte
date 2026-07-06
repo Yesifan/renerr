@@ -151,13 +151,6 @@
 										{/snippet}
 									</Sidebar.MenuSubButton>
 								</Sidebar.MenuSubItem>
-								<Sidebar.MenuSubItem>
-									<Sidebar.MenuSubButton isActive={isActive('/system/logs')}>
-										{#snippet child({ props })}
-											<a href={resolve('/system/logs')} {...props}>{m.nav_logs()}</a>
-										{/snippet}
-									</Sidebar.MenuSubButton>
-								</Sidebar.MenuSubItem>
 							</Sidebar.MenuSub>
 						</Sidebar.Menu>
 					</Sidebar.Group>

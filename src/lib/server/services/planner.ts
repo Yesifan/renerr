@@ -16,6 +16,7 @@ import { extname, isVideoPath, joinRemote, sidecarExtensions, stripExt } from '.
 import { targetPathFor } from './naming';
 import { parseTvName } from './parser';
 import { enqueueTask } from './tasks';
+import { createTaskRecorder } from './task-recorder';
 import { posterUrl } from './tmdb';
 
 type Mode = 'auto' | 'manual';
@@ -46,6 +47,44 @@ export type DraftRow = {
 };
 
 export async function createPlanForItem(itemId: string, mode: Mode) {
+	const result = await createConfirmedRenamePlanForItem(itemId, mode, 'worker');
+	if (!result.plan) {
+		throw new ApiError(
+			'plan.noop',
+			'No executable rename plan rows were found',
+			400,
+			result.summary
+		);
+	}
+	return result.plan;
+}
+
+export async function runCreateRenamePlanForItemTask(taskId: string, itemId: string) {
+	const recorder = createTaskRecorder(taskId, { component: 'RenamePlanner' }, 'worker');
+	const result = await createConfirmedRenamePlanForItem(itemId, 'auto', 'worker');
+	const summary: Record<string, unknown> = {
+		itemId,
+		...result.summary,
+		autoExecute: false,
+		executionTaskId: null
+	};
+	if (!result.plan) {
+		recorder.info(`${result.item.topLevelPath} has no executable rename plan rows`);
+		return summary;
+	}
+	recorder.info(`${result.item.topLevelPath} rename plan ${result.plan.id} created`);
+	const autoExecute = result.library.autoOrganize;
+	summary.planId = result.plan.id;
+	summary.autoExecute = autoExecute;
+	if (autoExecute) {
+		const task = enqueueTask('execute_rename_plan', { planId: result.plan.id });
+		summary.executionTaskId = task.id;
+		recorder.info(`${result.item.topLevelPath} rename plan ${result.plan.id} queued for execution`);
+	}
+	return summary;
+}
+
+async function createConfirmedRenamePlanForItem(itemId: string, mode: Mode, createdBy: string) {
 	const item = getPlanningItem(itemId);
 	if (!['identified', 'organized'].includes(item.status)) {
 		throw new ApiError(
@@ -59,14 +98,28 @@ export async function createPlanForItem(itemId: string, mode: Mode) {
 	}
 	const library = getLibrary(item.libraryPathId);
 	const sourceFiles = await listVideoFilesForItem(item);
-	const planId = createConfirmedPlan(library.id, mode, 'worker');
-	for (const sourceFilePath of sourceFiles) {
-		const row = await buildRow(item, library, sourceFilePath, false);
-		if (row.status === 'invalid') continue;
-		if (row.noop) continue;
+	const rows = await Promise.all(
+		sourceFiles.map((sourceFilePath) => buildRow(item, library, sourceFilePath, false))
+	);
+	const executableRows = rows.filter((row) => row.status !== 'invalid' && !row.noop);
+	const invalidRows = rows.filter((row) => row.status === 'invalid').length;
+	const noopRows = rows.filter((row) => row.noop).length;
+	const summary = {
+		planId: null as string | null,
+		executableRows: executableRows.length,
+		noopRows,
+		invalidRows,
+		totalRows: rows.length
+	};
+	if (!executableRows.length) {
+		return { item, library, plan: null, summary };
+	}
+	const planId = createConfirmedPlan(library.id, mode, createdBy);
+	summary.planId = planId;
+	for (const row of executableRows) {
 		insertPlanItem(planId, itemId, row);
 	}
-	return getPlan(planId);
+	return { item, library, plan: getPlan(planId), summary };
 }
 
 export async function createDraftForItem(itemId: string) {

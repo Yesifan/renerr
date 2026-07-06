@@ -1,12 +1,13 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { ApiError } from '$lib/server/api';
 import { getDb } from '$lib/server/db';
-import { executionRecords, renamePlanItems, renamePlans, tasks } from '$lib/server/db/schema';
+import { renamePlanItems, renamePlans, tasks } from '$lib/server/db/schema';
 import { newId } from '$lib/server/id';
 import { nowIso } from '$lib/server/time';
-import { listLogsForTask } from './logs';
+import { listTaskDetailLines } from './task-detail-lines';
 
-export type TaskType = 'scan_library_path' | 'scan_library_item' | 'execute_rename_plan';
+export type TaskType =
+	'scan_library_path' | 'scan_library_item' | 'create_rename_plan_for_item' | 'execute_rename_plan';
 
 type TaskPayload = {
 	libraryPathId?: unknown;
@@ -22,6 +23,8 @@ export function taskTargetKey(type: string, payload: unknown) {
 	const data = (payload ?? {}) as TaskPayload;
 	if (type === 'scan_library_path') return `libraryPath:${String(data.libraryPathId ?? '')}`;
 	if (type === 'scan_library_item') return `libraryItem:${String(data.libraryItemId ?? '')}`;
+	if (type === 'create_rename_plan_for_item')
+		return `libraryItem:${String(data.libraryItemId ?? '')}`;
 	if (type === 'execute_rename_plan') return `renamePlan:${String(data.planId ?? '')}`;
 	return `${type}:${JSON.stringify(payload ?? {})}`;
 }
@@ -145,21 +148,9 @@ export function getTask(id: string) {
 
 export function getTaskDetail(id: string) {
 	const task = getTask(id);
-	const records =
-		task.type === 'execute_rename_plan'
-			? getDb()
-					.select()
-					.from(executionRecords)
-					.where(eq(executionRecords.taskId, id))
-					.orderBy(desc(executionRecords.createdAt))
-					.limit(200)
-					.all()
-					.map(mapExecutionRecord)
-			: [];
 	return {
 		task,
-		logs: listLogsForTask(id),
-		executionRecords: records,
+		lines: listTaskDetailLines(id),
 		detailsCleaned: false
 	};
 }
@@ -262,6 +253,7 @@ export function updateTaskProgress(id: string, progress: unknown) {
 function defaultTargetLabel(type: string, payload: TaskPayload) {
 	if (type === 'scan_library_path') return String(payload.libraryPathId ?? '');
 	if (type === 'scan_library_item') return String(payload.libraryItemId ?? '');
+	if (type === 'create_rename_plan_for_item') return String(payload.libraryItemId ?? '');
 	if (type === 'execute_rename_plan') return String(payload.planId ?? '');
 	return null;
 }
@@ -295,20 +287,6 @@ function mapActiveTask(row: typeof tasks.$inferSelect) {
 		progress: task.progress,
 		createdAt: task.createdAt,
 		startedAt: task.startedAt
-	};
-}
-
-function mapExecutionRecord(row: typeof executionRecords.$inferSelect) {
-	return {
-		id: row.id,
-		taskId: row.taskId,
-		planItemId: row.planItemId,
-		sourcePath: row.sourcePath,
-		targetPath: row.targetPath,
-		status: row.status,
-		error: row.error,
-		context: JSON.parse(row.contextJson || '{}'),
-		createdAt: row.createdAt
 	};
 }
 

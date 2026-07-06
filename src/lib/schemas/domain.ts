@@ -120,6 +120,23 @@ export type TmdbResult = {
 	originalTitle: string;
 	year?: number;
 	posterPath?: string;
+	posterUrl: string | null;
+	overview: string;
+};
+
+export type TmdbSeasonOption = {
+	number: number;
+	name: string;
+	episodeCount: number | null;
+	airDate: string | null;
+};
+
+export type TmdbEpisodeOption = {
+	season: number;
+	episode: number;
+	name: string;
+	airDate: string | null;
+	overview: string;
 };
 
 export type Item = {
@@ -155,7 +172,6 @@ export type ItemDetail = {
 		lastScannedAt?: string | null;
 		lastExecutionSummary?: unknown;
 	};
-	executionRecords: ExecutionRecord[];
 };
 
 export type ItemDetailFile = {
@@ -166,18 +182,6 @@ export type ItemDetailFile = {
 	lastmod?: string;
 	video: boolean;
 	compliance: { state: 'not_video' | 'compliant' | 'non_compliant'; movie?: unknown; tv?: unknown };
-};
-
-export type ExecutionRecord = {
-	id: string;
-	taskId?: string;
-	planItemId?: string | null;
-	sourcePath: string;
-	targetPath: string;
-	status: string;
-	error: string | null;
-	context: unknown;
-	createdAt: string;
 };
 
 export type RenamePlanDraft = {
@@ -244,8 +248,7 @@ export type TaskResultSummary = Record<string, unknown>;
 
 export type TaskDetail = {
 	task: Task;
-	logs: LogEntry[];
-	executionRecords: ExecutionRecord[];
+	lines: TaskDetailLine[];
 	detailsCleaned: boolean;
 };
 
@@ -261,15 +264,10 @@ export type ActiveTaskSummary = {
 	startedAt: string | null;
 };
 
-export type LogEntry = {
+export type TaskDetailLine = {
 	id: string;
-	taskId: string | null;
-	taskType?: string | null;
-	taskTargetLabel?: string | null;
-	time: string;
+	taskId: string;
 	level: string;
-	component: string;
 	message: string;
-	summary: string | null;
-	context: unknown;
+	createdAt: string;
 };

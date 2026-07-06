@@ -5,6 +5,7 @@ import posix from 'node:path/posix';
 import process from 'node:process';
 import Database from 'better-sqlite3';
 import { createClient } from 'webdav';
+import { scriptLogger } from '../logger.js';
 
 type ProbeArgs = {
 	run: boolean;
@@ -68,7 +69,7 @@ async function main() {
 
 	printPlan(row, sourceDir, targetDir, args);
 	if (!args.run) {
-		console.log('\nDry run only. Re-run with --run to create and move probe files.');
+		scriptLogger.info('\nDry run only. Re-run with --run to create and move probe files.');
 		return;
 	}
 
@@ -104,7 +105,7 @@ async function main() {
 	}
 
 	if (sourceDir === targetDir) {
-		console.log('\nSkipping cross-directory probes because sourceDir equals targetDir.');
+		scriptLogger.info('\nSkipping cross-directory probes because sourceDir equals targetDir.');
 	} else {
 		if (shouldRun(args, 'cross_dir_same_basename')) {
 			results.push(
@@ -130,8 +131,8 @@ async function main() {
 		}
 	}
 
-	console.log('\nProbe results:');
-	console.log(
+	scriptLogger.info('\nProbe results:');
+	scriptLogger.info(
 		JSON.stringify({ sourceDir, targetDir, results, recommendation: recommend(results) }, null, 2)
 	);
 }
@@ -234,18 +235,18 @@ function findProbeRow(args: ProbeArgs): ProbeRow {
 }
 
 function printPlan(row: ProbeRow, sourceDir: string, targetDir: string, args: ProbeArgs) {
-	console.log('Renarr WebDAV direct MOVE probe');
-	console.log('');
-	console.log(`DB: ${getDatabasePath()}`);
-	console.log(`Source: ${row.sourceName} (${redactUrl(row.sourceUrl)})`);
-	console.log(`Plan: ${row.planId}`);
-	console.log(`Row: ${row.rowId}`);
-	console.log(`Source file sample: ${row.sourceFilePath}`);
-	console.log(`Target file sample: ${row.targetFilePath}`);
-	console.log(`Probe source dir: ${sourceDir}`);
-	console.log(`Probe target dir: ${targetDir}`);
-	console.log(`Mode: ${args.run ? 'run' : 'dry-run'}`);
-	console.log(`Keep probe files: ${args.keep ? 'yes' : 'no'}`);
+	scriptLogger.info('Renarr WebDAV direct MOVE probe');
+	scriptLogger.info('');
+	scriptLogger.info(`DB: ${getDatabasePath()}`);
+	scriptLogger.info(`Source: ${row.sourceName} (${redactUrl(row.sourceUrl)})`);
+	scriptLogger.info(`Plan: ${row.planId}`);
+	scriptLogger.info(`Row: ${row.rowId}`);
+	scriptLogger.info(`Source file sample: ${row.sourceFilePath}`);
+	scriptLogger.info(`Target file sample: ${row.targetFilePath}`);
+	scriptLogger.info(`Probe source dir: ${sourceDir}`);
+	scriptLogger.info(`Probe target dir: ${targetDir}`);
+	scriptLogger.info(`Mode: ${args.run ? 'run' : 'dry-run'}`);
+	scriptLogger.info(`Keep probe files: ${args.keep ? 'yes' : 'no'}`);
 }
 
 function recommend(results: ProbeResult[]) {
@@ -293,7 +294,7 @@ function parseArgs(argv: string[]): ProbeArgs {
 }
 
 function printHelp() {
-	console.log(`Usage:
+	scriptLogger.info(`Usage:
   pnpm tsx scripts/probes/webdav-direct-move-probe.ts [--run] [--plan <id>] [--row <id>]
 
 Options:
@@ -468,6 +469,6 @@ function stringifyError(error: unknown) {
 }
 
 main().catch((error) => {
-	console.error(error instanceof Error ? error.message : String(error));
+	scriptLogger.error(error instanceof Error ? error.message : String(error));
 	process.exit(1);
 });

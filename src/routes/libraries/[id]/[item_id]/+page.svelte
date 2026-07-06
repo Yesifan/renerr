@@ -14,6 +14,8 @@
 		RenamePlanDraft,
 		RenamePlanDraftRow,
 		Task,
+		TmdbEpisodeOption,
+		TmdbSeasonOption,
 		TmdbResult
 	} from '$lib/schemas/domain';
 	import type { PageProps } from './$types';
@@ -144,6 +146,23 @@
 		);
 	}
 
+	async function loadSeasonOptions(tmdbId: string) {
+		return queryClient.fetchQuery({
+			queryKey: queryKeys.tmdbTvSeasons(tmdbId),
+			queryFn: () => api<TmdbSeasonOption[]>(`/api/tmdb/tv/${encodeURIComponent(tmdbId)}/seasons`)
+		});
+	}
+
+	async function loadEpisodeOptions(tmdbId: string, season: number) {
+		return queryClient.fetchQuery({
+			queryKey: queryKeys.tmdbTvEpisodes(tmdbId, season),
+			queryFn: () =>
+				api<TmdbEpisodeOption[]>(
+					`/api/tmdb/tv/${encodeURIComponent(tmdbId)}/seasons/${season}/episodes`
+				)
+		});
+	}
+
 	async function chooseIdentity(target: Item, result: TmdbResult) {
 		recognizedItem = await post<Item>(`/api/library-items/${target.id}/recognize`, {
 			sourceMediaType: library.mediaType,
@@ -183,7 +202,11 @@
 	}
 
 	function canScanItem(target: Item) {
-		return target.status === 'organized' || target.status === 'unidentified';
+		return (
+			target.status === 'organized' ||
+			target.status === 'identified' ||
+			target.status === 'unidentified'
+		);
 	}
 
 	function canCreatePlan(target: Item) {
@@ -194,6 +217,7 @@
 	}
 
 	function taskActionLabel(task: ActiveTaskSummary) {
+		if (task.type === 'create_rename_plan_for_item') return '正在创建整理计划';
 		return task.type === 'execute_rename_plan' ? '正在整理' : '正在扫描';
 	}
 </script>
@@ -340,6 +364,8 @@
 				onUpdateRow={(row) => updateDraftMutation.mutate(row)}
 				onSubmit={submitDraft}
 				onSearchMedia={searchMedia}
+				onLoadSeasonOptions={loadSeasonOptions}
+				onLoadEpisodeOptions={loadEpisodeOptions}
 			/>
 		{:else}
 			<div class="rounded-md border border-dashed border-border p-6 text-sm text-muted-foreground">

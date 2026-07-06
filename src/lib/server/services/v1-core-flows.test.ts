@@ -12,6 +12,7 @@ async function freshDb() {
 	vi.clearAllMocks();
 	vi.doUnmock('./sources');
 	vi.doUnmock('./tmdb');
+	vi.doUnmock('$lib/server/integrations/webdav-client');
 	process.env.RENARR_DATA_DIR = mkdtempSync(join(tmpdir(), 'renarr-test-'));
 	process.env.RENARR_SECRET_KEY = secret;
 	const { getSqliteForTest, pushCurrentSchemaForTest } = await import('$lib/server/test-db');
@@ -43,6 +44,7 @@ describe('V1 core flows', () => {
 
 	afterEach(() => {
 		vi.useRealTimers();
+		vi.unstubAllGlobals();
 	});
 
 	test('settings save keeps masked TMDB API key unchanged', async () => {
@@ -59,21 +61,166 @@ describe('V1 core flows', () => {
 		db.close();
 	});
 
-	test('TMDB connectivity failure returns a stable code without leaking the API key to logs', async () => {
+	test('TMDB connectivity failure returns a stable code without leaking the API key in errors', async () => {
 		const db = await freshDb();
 		const fetchMock = vi.fn(async () => new Response('{}', { status: 401 }));
 		vi.stubGlobal('fetch', fetchMock);
 		const { testTmdbConnection } = await import('./tmdb');
 
-		await expect(testTmdbConnection({ apiKey: 'secret-tmdb-key' })).rejects.toMatchObject({
+		const promise = testTmdbConnection({ apiKey: 'secret-tmdb-key' });
+		await expect(promise).rejects.toMatchObject({
 			code: 'tmdb.unauthorized'
 		});
+		await expect(promise).rejects.not.toThrow('secret-tmdb-key');
+		db.close();
+	});
 
-		const logs = db.prepare('select message, context_json from logs').all() as {
-			message: string;
-			context_json: string;
-		}[];
-		expect(JSON.stringify(logs)).not.toContain('secret-tmdb-key');
+	test('TMDB TV options expose season zero and episode metadata without leaking keys', async () => {
+		const db = await freshDb();
+		const { saveSettings } = await import('./settings');
+		saveSettings({ tmdbApiKey: 'secret-tmdb-key', namingLanguage: 'zh-CN' });
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: string | URL | Request) => {
+				const url = new URL(String(input));
+				if (url.pathname.endsWith('/tv/100')) {
+					return new Response(
+						JSON.stringify({
+							seasons: [
+								{ season_number: 1, name: 'Season 1', episode_count: 8, air_date: '2026-01-01' },
+								{ season_number: 0, name: 'Specials', episode_count: 1, air_date: null }
+							]
+						})
+					);
+				}
+				if (url.pathname.endsWith('/tv/100/season/0')) {
+					return new Response(
+						JSON.stringify({
+							episodes: [
+								{
+									episode_number: 1,
+									name: 'Special Episode',
+									air_date: '2026-02-01',
+									overview: 'Behind the scenes'
+								}
+							]
+						})
+					);
+				}
+				return new Response('{}', { status: 404 });
+			})
+		);
+		const { listTmdbTvSeasons, listTmdbTvSeasonEpisodes } = await import('./tmdb');
+
+		await expect(listTmdbTvSeasons(100)).resolves.toEqual([
+			{ number: 0, name: 'Specials', episodeCount: 1, airDate: null },
+			{ number: 1, name: 'Season 1', episodeCount: 8, airDate: '2026-01-01' }
+		]);
+		await expect(listTmdbTvSeasonEpisodes(100, 0)).resolves.toEqual([
+			{
+				season: 0,
+				episode: 1,
+				name: 'Special Episode',
+				airDate: '2026-02-01',
+				overview: 'Behind the scenes'
+			}
+		]);
+		db.close();
+	});
+
+	test('TMDB TV option failures use stable codes and empty TMDB data stays empty', async () => {
+		const db = await freshDb();
+		const { listTmdbTvSeasons } = await import('./tmdb');
+
+		await expect(listTmdbTvSeasons(100)).rejects.toMatchObject({ code: 'tmdb.unauthorized' });
+
+		const { saveSettings } = await import('./settings');
+		saveSettings({ tmdbApiKey: 'secret-tmdb-key', namingLanguage: 'zh-CN' });
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response('{}'))
+		);
+		const tmdb = await import('./tmdb');
+		await expect(tmdb.listTmdbTvSeasons(100)).resolves.toEqual([]);
+		await expect(tmdb.listTmdbTvSeasonEpisodes(100, 1)).resolves.toEqual([]);
+
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response('{}', { status: 429 }))
+		);
+		const promise = tmdb.listTmdbTvSeasons(100);
+		await expect(promise).rejects.toMatchObject({ code: 'tmdb.rate_limited' });
+		await expect(promise).rejects.not.toThrow('secret-tmdb-key');
+		db.close();
+	});
+
+	test('WebDAV browse suggestions list only direct child directories', async () => {
+		const listDirectory = vi.fn(async (path: string) => {
+			if (path === '/') {
+				return [
+					{ basename: 'tv', filename: '/tv', type: 'directory' as const },
+					{ basename: 'movie.mkv', filename: '/movie.mkv', type: 'file' as const }
+				];
+			}
+			if (path === '/tv') {
+				return [
+					{ basename: 'Show10', filename: '/tv/Show10', type: 'directory' as const },
+					{ basename: 'Show2', filename: '/tv/Show2', type: 'directory' as const },
+					{ basename: 'episode.mkv', filename: '/tv/episode.mkv', type: 'file' as const }
+				];
+			}
+			throw new Error('unexpected path');
+		});
+		await freshDb();
+		vi.doMock('$lib/server/integrations/webdav-client', () => ({
+			WebDavFileClient: class {
+				listDirectory = listDirectory;
+			}
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		const { upsertSource, browseWebdav } = await import('./sources');
+		const source = upsertSource({
+			name: 'dav',
+			url: 'https://example.test/dav',
+			username: 'user',
+			credential: 'secret'
+		});
+
+		await expect(browseWebdav(source.id, '/')).resolves.toEqual([
+			{ basename: 'tv', filename: '/tv', type: 'directory' }
+		]);
+		await expect(browseWebdav(source.id, '/tv')).resolves.toEqual([
+			{ basename: 'Show2', filename: '/tv/Show2', type: 'directory' },
+			{ basename: 'Show10', filename: '/tv/Show10', type: 'directory' }
+		]);
+		expect(listDirectory).toHaveBeenCalledTimes(2);
+		expect(listDirectory).toHaveBeenNthCalledWith(1, '/');
+		expect(listDirectory).toHaveBeenNthCalledWith(2, '/tv');
+		db.close();
+	});
+
+	test('WebDAV browse suggestions return stable errors for unreadable paths', async () => {
+		const listDirectory = vi.fn(async () => {
+			throw new Error('permission denied: secret-password');
+		});
+		await freshDb();
+		vi.doMock('$lib/server/integrations/webdav-client', () => ({
+			WebDavFileClient: class {
+				listDirectory = listDirectory;
+			}
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		const { upsertSource, browseWebdav } = await import('./sources');
+		const source = upsertSource({
+			name: 'dav',
+			url: 'https://example.test/dav',
+			username: 'user',
+			credential: 'secret-password'
+		});
+
+		const promise = browseWebdav(source.id, '/private');
+		await expect(promise).rejects.toMatchObject({ code: 'webdav.path_unreadable' });
+		await expect(promise).rejects.not.toThrow('secret-password');
 		db.close();
 	});
 
@@ -222,7 +369,7 @@ describe('V1 core flows', () => {
 		db.close();
 	});
 
-	test('scanLibraryItem rejects statuses that require user action first', async () => {
+	test('scanLibraryItem rejects pending review items that require user action first', async () => {
 		await freshDb();
 		vi.doMock('./sources', () => ({
 			getLibrary: () => ({
@@ -243,11 +390,82 @@ describe('V1 core flows', () => {
 			`insert into library_items
 			 (id, library_path_id, kind, top_level_path, status, video_file_count, compliant_file_count,
 			  non_compliant_file_count, unknown_file_count, created_at, updated_at)
-			 values ('item1', 'lib1', 'folder', 'Show1', 'identified', 0, 0, 0, 0, 'now', 'now')`
+			 values ('item1', 'lib1', 'folder', 'Show1', 'pending_review', 0, 0, 0, 0, 'now', 'now')`
 		).run();
 		const { scanLibraryItem } = await import('./scanner');
 
 		await expect(scanLibraryItem('item1')).rejects.toMatchObject({ code: 'item.scan_not_allowed' });
+		db.close();
+	});
+
+	test('scanLibraryPath enqueues create plan tasks for identified and dirty organized items', async () => {
+		await freshDb();
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: true,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				listDirectory: vi.fn(async (path: string) => {
+					if (path === '/tv') {
+						return [
+							{ basename: 'IdentifiedShow', type: 'directory' },
+							{ basename: 'DirtyShow', type: 'directory' },
+							{ basename: 'CleanShow', type: 'directory' }
+						];
+					}
+					if (path === '/tv/CleanShow') {
+						return [{ basename: 'CleanShow.S01E01.mkv', type: 'file' }];
+					}
+					return [{ basename: 'random.mkv', type: 'file' }];
+				})
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		for (const [id, topLevelPath, status] of [
+			['identified1', 'IdentifiedShow', 'identified'],
+			['dirty1', 'DirtyShow', 'organized'],
+			['clean1', 'CleanShow', 'organized']
+		]) {
+			db.prepare(
+				`insert into library_items
+				 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id,
+				  title, year, video_file_count, compliant_file_count, non_compliant_file_count,
+				  unknown_file_count, created_at, updated_at)
+				 values (?, 'lib1', 'folder', ?, ?, 'tmdb', 'tv', '100', ?, 2024, 1, 0, 1, 0, 'now', 'now')`
+			).run(id, topLevelPath, status, topLevelPath);
+		}
+		const { scanLibraryPath } = await import('./scanner');
+
+		await scanLibraryPath('lib1');
+
+		expect(
+			db
+				.prepare(
+					`select type, target_key, state from tasks
+					 where type = 'create_rename_plan_for_item'
+					 order by target_key`
+				)
+				.all()
+		).toEqual([
+			{
+				type: 'create_rename_plan_for_item',
+				target_key: 'libraryItem:dirty1',
+				state: 'queued'
+			},
+			{
+				type: 'create_rename_plan_for_item',
+				target_key: 'libraryItem:identified1',
+				state: 'queued'
+			}
+		]);
 		db.close();
 	});
 
@@ -295,6 +513,93 @@ describe('V1 core flows', () => {
 		expect(db.prepare('select count(*) as count from rename_plan_items').get()).toEqual({
 			count: 1
 		});
+		db.close();
+	});
+
+	test('create rename plan task leaves execution manual when autoOrganize is disabled', async () => {
+		await freshDb();
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				listDirectory: vi.fn(async () => [{ basename: 'Show1.S01E01.mkv', type: 'file' }]),
+				exists: vi.fn(async () => false)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id,
+			  title, year, video_file_count, compliant_file_count, non_compliant_file_count,
+			  unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1', 'identified', 'tmdb', 'tv', '100',
+			  'Show1', 2024, 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		const { runCreateRenamePlanForItemTask } = await import('./planner');
+
+		const summary = await runCreateRenamePlanForItemTask('task1', 'item1');
+
+		expect(summary).toMatchObject({
+			itemId: 'item1',
+			executableRows: 1,
+			autoExecute: false,
+			executionTaskId: null
+		});
+		expect(db.prepare('select status from rename_plans').get()).toEqual({ status: 'confirmed' });
+		expect(db.prepare('select count(*) as count from tasks').get()).toEqual({ count: 0 });
+		db.close();
+	});
+
+	test('create rename plan task queues execution when autoOrganize is enabled', async () => {
+		await freshDb();
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: true,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				listDirectory: vi.fn(async () => [{ basename: 'Show1.S01E01.mkv', type: 'file' }]),
+				exists: vi.fn(async () => false)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id,
+			  title, year, video_file_count, compliant_file_count, non_compliant_file_count,
+			  unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1', 'identified', 'tmdb', 'tv', '100',
+			  'Show1', 2024, 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		const { runCreateRenamePlanForItemTask } = await import('./planner');
+
+		const summary = await runCreateRenamePlanForItemTask('task1', 'item1');
+
+		expect(summary).toMatchObject({
+			itemId: 'item1',
+			executableRows: 1,
+			autoExecute: true
+		});
+		expect(summary.executionTaskId).toEqual(expect.any(String));
+		expect(db.prepare('select type, state from tasks').all()).toEqual([
+			{ type: 'execute_rename_plan', state: 'queued' }
+		]);
 		db.close();
 	});
 
@@ -357,6 +662,54 @@ describe('V1 core flows', () => {
 			source_media_id: '100',
 			title: 'Show1'
 		});
+		db.close();
+	});
+
+	test('draft row season edit preserves episode and recomputes target path', async () => {
+		await freshDb();
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				mediaType: 'tv',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				listDirectory: vi.fn(async () => [{ basename: 'Show1.S01E08.mkv', type: 'file' }]),
+				exists: vi.fn(async () => false)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id, title,
+			  year, video_file_count, compliant_file_count, non_compliant_file_count, unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1', 'identified', 'tmdb', 'tv', '100', 'Show1',
+			  2024, 1, 0, 1, 0, 'now', 'now')`
+		).run();
+		const { createDraftForItem, updateDraft } = await import('./planner');
+
+		const draft = await createDraftForItem('item1');
+		const updated = await updateDraft(draft.id, {
+			rows: [
+				{
+					id: draft.rows[0].id,
+					season: 2
+				}
+			]
+		});
+
+		expect(updated.rows[0]).toMatchObject({
+			season: 2,
+			episode: 8,
+			status: 'valid'
+		});
+		expect(updated.rows[0].targetFilePath).toContain('s02e08');
 		db.close();
 	});
 
@@ -624,9 +977,10 @@ describe('V1 core flows', () => {
 		expect(db.prepare('select type, target_key, state from tasks').all()).toEqual([
 			{ type: 'scan_library_path', target_key: 'libraryPath:lib1', state: 'queued' }
 		]);
-		expect(db.prepare('select count(*) as count from execution_records').get()).toEqual({
-			count: 2
-		});
+		expect(db.prepare('select status from rename_plan_items order by id').all()).toEqual([
+			{ status: 'succeeded' },
+			{ status: 'failed' }
+		]);
 		expect(db.prepare('select status from library_items where id = ?').get('item1')).toEqual({
 			status: 'identified'
 		});
@@ -750,12 +1104,11 @@ describe('V1 core flows', () => {
 			state: 'succeeded',
 			summary: { moved: 1, moveFailed: 0, warnings: 2 }
 		});
-		const record = db
-			.prepare('select context_json from execution_records where status = ?')
-			.get('succeeded') as {
-			context_json: string;
-		};
-		expect(JSON.parse(record.context_json).warnings).toHaveLength(2);
+		const lines = db.prepare('select message from task_detail_lines order by id').all() as {
+			message: string;
+		}[];
+		expect(lines.some((line) => line.message.includes('sidecar_move_failed'))).toBe(true);
+		expect(lines.some((line) => line.message.includes('metadata_write_failed'))).toBe(true);
 		expect(moveFile).toHaveBeenCalled();
 		expect(
 			db
@@ -910,15 +1263,10 @@ describe('V1 core flows', () => {
 			state: 'succeeded',
 			summary: { moved: 1, moveFailed: 0, warnings: 1 }
 		});
-		const record = db
-			.prepare('select context_json from execution_records where status = ?')
-			.get('succeeded') as {
-			context_json: string;
-		};
-		expect(JSON.parse(record.context_json).warnings).toContainEqual({
-			type: 'webdav_move_retry',
-			attempt: 1
-		});
+		const lines = db.prepare('select message from task_detail_lines order by id').all() as {
+			message: string;
+		}[];
+		expect(lines.some((line) => line.message.includes('webdav_move_retry'))).toBe(true);
 		db.close();
 	});
 
@@ -978,13 +1326,11 @@ describe('V1 core flows', () => {
 			state: 'succeeded',
 			summary: { moved: 1, moveFailed: 0 }
 		});
-		const record = db
-			.prepare('select context_json from execution_records where status = ?')
-			.get('succeeded') as { context_json: string };
-		expect(JSON.parse(record.context_json)).toMatchObject({
-			originalSource: '/tv/Show1/01.mkv',
-			finalTarget: '/tv/Show1/Show1.2024.s01e01.mkv'
-		});
+		expect(
+			db
+				.prepare('select message from task_detail_lines where message like ?')
+				.get('%/tv/Show1/01.mkv moved to /tv/Show1/Show1.2024.s01e01.mkv successfully%')
+		).toBeTruthy();
 		db.close();
 	});
 
@@ -1172,15 +1518,11 @@ describe('V1 core flows', () => {
 			summary: { moved: 1, moveFailed: 0 }
 		});
 		expect(moveCount).toBe(1);
-		const record = db.prepare('select context_json from execution_records').get() as {
-			context_json: string;
-		};
-		expect(JSON.parse(record.context_json).moveSteps).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ stage: 'rename_in_place' }),
-				expect.objectContaining({ stage: 'move_to_target' })
-			])
-		);
+		const lines = db.prepare('select message from task_detail_lines order by id').all() as {
+			message: string;
+		}[];
+		expect(lines.some((line) => line.message.includes('FileClient rename_in_place'))).toBe(true);
+		expect(lines.some((line) => line.message.includes('FileClient move_to_target'))).toBe(true);
 		expect(db.prepare('select status from rename_plan_items where id = ?').get('row1')).toEqual({
 			status: 'succeeded'
 		});
@@ -1387,21 +1729,17 @@ describe('V1 core flows', () => {
 			'/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4',
 			{ overwrite: false }
 		);
-		const record = db
-			.prepare('select context_json from execution_records where status = ?')
-			.get('succeeded') as {
-			context_json: string;
-		};
-		expect(JSON.parse(record.context_json).warnings).toContainEqual({
-			type: 'resumed_intermediate_move',
-			originalSource: '/tv/OldShow/Season 01/01.mp4',
-			intermediate: '/tv/OldShow/Season 01/Show.2026.s01e01.mp4',
-			finalTarget: '/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4'
-		});
-		expect(JSON.parse(record.context_json)).toMatchObject({
-			originalSource: '/tv/OldShow/Season 01/01.mp4',
-			finalTarget: '/tv/Show (2026)/Season 01/Show.2026.s01e01.mp4'
-		});
+		const lines = db.prepare('select message from task_detail_lines order by id').all() as {
+			message: string;
+		}[];
+		expect(lines.some((line) => line.message.includes('resumed_intermediate_move'))).toBe(true);
+		expect(
+			lines.some((line) =>
+				line.message.includes(
+					'/tv/OldShow/Season 01/01.mp4 moved to /tv/Show (2026)/Season 01/Show.2026.s01e01.mp4 successfully'
+				)
+			)
+		).toBe(true);
 		expect(
 			db
 				.prepare(

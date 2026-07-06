@@ -155,7 +155,7 @@ describe('task observability', () => {
 		db.close();
 	});
 
-	test('scan task writes progress, recognition logs, and summary', async () => {
+	test('scan task writes progress, recognition detail lines, and summary', async () => {
 		await freshDb();
 		vi.stubGlobal(
 			'fetch',
@@ -211,16 +211,18 @@ describe('task observability', () => {
 
 		expect(detail.task.progress).toMatchObject({ phase: 'completed' });
 		expect(detail.task.resultSummary).toMatchObject({ processed: 1, recognized: 1, failed: 0 });
-		expect(detail.logs.map((entry) => entry.message)).toContain('Item recognized');
 		expect(
-			detail.logs.some((entry) => entry.summary?.includes('Show1 recognized as tv Show1'))
+			detail.lines.some((entry) => entry.message.includes('Show1 recognized as tv Show1'))
 		).toBe(true);
+		expect(detail.lines.some((entry) => entry.message.includes('queued rename plan task'))).toBe(
+			true
+		);
 		db.close();
 	});
 
-	test('cleanup keeps running task logs while removing old completed task logs', async () => {
+	test('cleanup keeps running task detail lines while removing old completed task lines', async () => {
 		const db = await freshDb();
-		const { cleanupTaskObservability } = await import('./logs');
+		const { cleanupTaskDetailLines } = await import('./task-detail-lines');
 		const old = '2000-01-01T00:00:00.000Z';
 		db.prepare(
 			`insert into tasks (id, type, target_key, state, payload_json, created_at)
@@ -228,14 +230,16 @@ describe('task observability', () => {
 			        ('done1', 'scan_library_path', 'libraryPath:lib2', 'succeeded', '{}', ?)`
 		).run(old, old);
 		db.prepare(
-			`insert into logs (id, task_id, time, level, component, message, context_json)
-			 values ('log1', 'running1', ?, 'info', 'Test', 'Running old', '{}'),
-			        ('log2', 'done1', ?, 'info', 'Test', 'Done old', '{}')`
+			`insert into task_detail_lines (id, task_id, level, message, created_at)
+			 values ('line1', 'running1', 'info', 'Running old', ?),
+			        ('line2', 'done1', 'info', 'Done old', ?)`
 		).run(old, old);
 
-		cleanupTaskObservability({ maxLogRows: 100, maxExecutionRows: 100 });
+		cleanupTaskDetailLines({ maxRows: 100 });
 
-		expect(db.prepare('select id from logs order by id').all()).toEqual([{ id: 'log1' }]);
+		expect(db.prepare('select id from task_detail_lines order by id').all()).toEqual([
+			{ id: 'line1' }
+		]);
 		db.close();
 	});
 });

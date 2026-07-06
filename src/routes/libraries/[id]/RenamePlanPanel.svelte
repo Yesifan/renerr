@@ -4,7 +4,13 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
 	import * as Table from '$lib/components/ui/table';
-	import type { RenamePlanDraft, RenamePlanDraftRow, TmdbResult } from '$lib/schemas/domain';
+	import type {
+		RenamePlanDraft,
+		RenamePlanDraftRow,
+		TmdbEpisodeOption,
+		TmdbResult,
+		TmdbSeasonOption
+	} from '$lib/schemas/domain';
 
 	type Props = {
 		draft: RenamePlanDraft;
@@ -13,9 +19,20 @@
 		onUpdateRow: (row: RenamePlanDraftRow) => void | Promise<void>;
 		onSubmit: () => void | Promise<void>;
 		onSearchMedia: (query: string) => Promise<TmdbResult[]>;
+		onLoadSeasonOptions: (tmdbId: string) => Promise<TmdbSeasonOption[]>;
+		onLoadEpisodeOptions: (tmdbId: string, season: number) => Promise<TmdbEpisodeOption[]>;
 	};
 
-	let { draft, busy, submitLabel, onUpdateRow, onSubmit, onSearchMedia }: Props = $props();
+	let {
+		draft,
+		busy,
+		submitLabel,
+		onUpdateRow,
+		onSubmit,
+		onSearchMedia,
+		onLoadSeasonOptions,
+		onLoadEpisodeOptions
+	}: Props = $props();
 
 	let step = $state<'edit' | 'confirm'>('edit');
 	let activeRowId = $state<string | null>(null);
@@ -23,6 +40,15 @@
 	let rowResults = $state<TmdbResult[]>([]);
 	let rowSearchBusy = $state(false);
 	let rowSearchError = $state('');
+	let seasonStates = $state<Record<string, OptionState<TmdbSeasonOption>>>({});
+	let episodeStates = $state<Record<string, OptionState<TmdbEpisodeOption>>>({});
+
+	type OptionState<T> = {
+		loading: boolean;
+		loaded: boolean;
+		error: string;
+		options: T[];
+	};
 
 	const selectedRows = $derived(draft.rows.filter((row) => row.selected));
 	const validSelectedRows = $derived(selectedRows.filter((row) => row.status === 'valid'));
@@ -50,11 +76,119 @@
 	}
 
 	function updateNumber(row: RenamePlanDraftRow, field: 'season' | 'episode', value: string) {
+		if (!value.trim()) {
+			onUpdateRow({ ...row, [field]: null });
+			return;
+		}
 		const parsed = Number(value);
+		const valid = field === 'season' ? parsed >= 0 : parsed > 0;
+		const nextValue = Number.isInteger(parsed) && valid ? parsed : null;
+		const nextRow = { ...row, [field]: nextValue };
 		onUpdateRow({
-			...row,
-			[field]: Number.isFinite(parsed) && parsed > 0 ? parsed : null
+			...nextRow
 		});
+		if (field === 'season' && nextValue !== null) void ensureEpisodeOptions(nextRow, true);
+	}
+
+	async function ensureSeasonOptions(row: RenamePlanDraftRow, retry = false) {
+		if (row.mediaKind !== 'tv' || !row.sourceMediaId) return;
+		const key = row.sourceMediaId;
+		const state = seasonStates[key];
+		if (state?.loading || (state?.loaded && !retry) || (state?.error && !retry)) return;
+		seasonStates[key] = { loading: true, loaded: false, error: '', options: state?.options ?? [] };
+		try {
+			seasonStates[key] = {
+				loading: false,
+				loaded: true,
+				error: '',
+				options: await onLoadSeasonOptions(key)
+			};
+		} catch (error) {
+			seasonStates[key] = { loading: false, loaded: false, error: String(error), options: [] };
+		}
+	}
+
+	async function ensureEpisodeOptions(row: RenamePlanDraftRow, retry = false) {
+		if (row.mediaKind !== 'tv' || !row.sourceMediaId || row.season === null) return;
+		const key = episodeKey(row.sourceMediaId, row.season);
+		const state = episodeStates[key];
+		if (state?.loading || (state?.loaded && !retry) || (state?.error && !retry)) return;
+		episodeStates[key] = { loading: true, loaded: false, error: '', options: state?.options ?? [] };
+		try {
+			episodeStates[key] = {
+				loading: false,
+				loaded: true,
+				error: '',
+				options: await onLoadEpisodeOptions(row.sourceMediaId, row.season)
+			};
+		} catch (error) {
+			episodeStates[key] = { loading: false, loaded: false, error: String(error), options: [] };
+		}
+	}
+
+	function seasonOptions(row: RenamePlanDraftRow) {
+		const options = row.sourceMediaId ? (seasonStates[row.sourceMediaId]?.options ?? []) : [];
+		if (row.season === null || options.some((option) => option.number === row.season))
+			return options;
+		return [
+			...options,
+			{ number: row.season, name: `当前值 S${row.season}`, episodeCount: null, airDate: null }
+		].sort((a, b) => a.number - b.number);
+	}
+
+	function episodeOptions(row: RenamePlanDraftRow) {
+		const options =
+			row.sourceMediaId && row.season !== null
+				? (episodeStates[episodeKey(row.sourceMediaId, row.season)]?.options ?? [])
+				: [];
+		if (row.episode === null || options.some((option) => option.episode === row.episode))
+			return options;
+		return [
+			...options,
+			{
+				season: row.season ?? 0,
+				episode: row.episode,
+				name: `当前值 E${row.episode}`,
+				airDate: null,
+				overview: ''
+			}
+		].sort((a, b) => a.episode - b.episode);
+	}
+
+	function seasonState(row: RenamePlanDraftRow) {
+		return row.sourceMediaId ? seasonStates[row.sourceMediaId] : undefined;
+	}
+
+	function episodeState(row: RenamePlanDraftRow) {
+		return row.sourceMediaId && row.season !== null
+			? episodeStates[episodeKey(row.sourceMediaId, row.season)]
+			: undefined;
+	}
+
+	function episodeKey(tmdbId: string, season: number) {
+		return `${tmdbId}:${season}`;
+	}
+
+	function seasonLabel(option: TmdbSeasonOption) {
+		const count = option.episodeCount === null ? '' : ` · ${option.episodeCount} 集`;
+		return `${option.name || `Season ${option.number}`}${count}`;
+	}
+
+	function episodeLabel(option: TmdbEpisodeOption) {
+		return option.name ? `E${option.episode} · ${option.name}` : `E${option.episode}`;
+	}
+
+	function optionStatus(row: RenamePlanDraftRow) {
+		const seasons = seasonState(row);
+		const episodes = episodeState(row);
+		if (seasons?.loading || episodes?.loading) return { tone: 'muted', text: '加载季集候选...' };
+		if (seasons?.error) return { tone: 'error', text: '季候选不可用，仍可手动输入' };
+		if (episodes?.error) return { tone: 'error', text: '集候选不可用，仍可手动输入' };
+		if (seasons && seasons.options.length === 0)
+			return { tone: 'muted', text: 'TMDB 没有季候选，可手动输入' };
+		if (row.season !== null && episodes && episodes.options.length === 0)
+			return { tone: 'muted', text: 'TMDB 没有集候选，可手动输入' };
+		return { tone: 'muted', text: '可输入候选外数字' };
 	}
 
 	function openRowSearch(row: RenamePlanDraftRow) {
@@ -86,10 +220,20 @@
 			originalTitle: result.originalTitle,
 			year: result.year ?? null,
 			posterPath: result.posterPath ?? null,
-			posterUrl: null
+			posterUrl: result.posterUrl
 		});
 		activeRowId = null;
 		rowResults = [];
+		void ensureSeasonOptions({ ...row, sourceMediaId: String(result.id) }, true);
+	}
+
+	function remotePathParts(path: string) {
+		const index = path.lastIndexOf('/');
+		if (index < 0) return { directory: '', filename: path };
+		return {
+			directory: index === 0 ? '/' : path.slice(0, index),
+			filename: path.slice(index + 1)
+		};
 	}
 </script>
 
@@ -136,10 +280,18 @@
 									onCheckedChange={(checked) => updateSelected(row, checked)}
 								/>
 							</Table.Cell>
-							<Table.Cell class="max-w-[360px] break-all font-mono text-[11px] text-foreground">
-								<div>{row.sourceFilePath}</div>
-								<div class="mt-2 border-t border-border/70 pt-2 text-muted-foreground">
-									目标：{row.targetFilePath || row.errorCode}
+							<Table.Cell class="max-w-[360px] font-mono text-[11px]">
+								{@const sourcePath = remotePathParts(row.sourceFilePath)}
+								{@const targetPath = remotePathParts(row.targetFilePath)}
+								<div class="break-words text-xs font-medium text-foreground">
+									{sourcePath.filename}
+								</div>
+								<div class="mt-1 break-all text-muted-foreground">{sourcePath.directory}</div>
+								<div class="mt-2 border-t border-border/70 pt-2">
+									<div class="break-words text-xs font-medium text-foreground">
+										{targetPath.filename || row.errorCode}
+									</div>
+									<div class="mt-1 break-all text-muted-foreground">{targetPath.directory}</div>
 								</div>
 								{#if row.noop}
 									<Badge
@@ -207,8 +359,28 @@
 														class="h-auto justify-start whitespace-normal rounded-md p-2 text-left text-xs"
 														onclick={() => chooseRowMedia(row, result)}
 													>
-														{result.title}
-														{result.year ? `(${result.year})` : ''}
+														<div class="flex min-w-0 gap-2">
+															<div class="h-14 w-10 shrink-0 overflow-hidden rounded bg-muted">
+																{#if result.posterUrl}
+																	<img
+																		class="h-full w-full object-cover"
+																		src={result.posterUrl}
+																		alt={result.title}
+																	/>
+																{/if}
+															</div>
+															<div class="min-w-0">
+																<div class="font-medium text-foreground">
+																	{result.title}
+																	{result.year ? ` (${result.year})` : ''}
+																</div>
+																{#if result.overview}
+																	<div class="mt-1 line-clamp-2 text-muted-foreground">
+																		{result.overview}
+																	</div>
+																{/if}
+															</div>
+														</div>
 													</Button>
 												{/each}
 											{:else}
@@ -224,21 +396,54 @@
 							</Table.Cell>
 							<Table.Cell>
 								{#if row.mediaKind === 'tv'}
-									<div class="flex gap-2">
-										<Input
-											class="w-16"
-											type="number"
-											min="1"
-											value={row.season ?? ''}
-											oninput={(event) => updateNumber(row, 'season', event.currentTarget.value)}
-										/>
-										<Input
-											class="w-16"
-											type="number"
-											min="1"
-											value={row.episode ?? ''}
-											oninput={(event) => updateNumber(row, 'episode', event.currentTarget.value)}
-										/>
+									<div class="grid gap-2">
+										<div class="grid grid-cols-2 gap-2">
+											<div>
+												<label class="sr-only" for={`season-${row.id}`}>季</label>
+												<Input
+													id={`season-${row.id}`}
+													class="w-20"
+													type="number"
+													min="0"
+													list={`season-options-${row.id}`}
+													value={row.season ?? ''}
+													onfocus={() => ensureSeasonOptions(row, true)}
+													oninput={(event) =>
+														updateNumber(row, 'season', event.currentTarget.value)}
+												/>
+												<datalist id={`season-options-${row.id}`}>
+													{#each seasonOptions(row) as option (option.number)}
+														<option value={option.number}>{seasonLabel(option)}</option>
+													{/each}
+												</datalist>
+											</div>
+											<div>
+												<label class="sr-only" for={`episode-${row.id}`}>集</label>
+												<Input
+													id={`episode-${row.id}`}
+													class="w-20"
+													type="number"
+													min="1"
+													list={`episode-options-${row.id}`}
+													value={row.episode ?? ''}
+													onfocus={() => ensureEpisodeOptions(row, true)}
+													oninput={(event) =>
+														updateNumber(row, 'episode', event.currentTarget.value)}
+												/>
+												<datalist id={`episode-options-${row.id}`}>
+													{#each episodeOptions(row) as option (option.episode)}
+														<option value={option.episode}>{episodeLabel(option)}</option>
+													{/each}
+												</datalist>
+											</div>
+										</div>
+										<div class="min-h-4 text-[11px] text-muted-foreground">
+											{#if optionStatus(row).tone === 'error'}
+												<span class="text-red-300">{optionStatus(row).text}</span>
+											{:else}
+												{optionStatus(row).text}
+											{/if}
+										</div>
 									</div>
 								{:else}
 									<span class="text-muted-foreground">电影</span>
@@ -309,12 +514,22 @@
 		<div class="max-h-[58vh] overflow-auto pr-1">
 			<div class="grid gap-3">
 				{#each validSelectedRows as row (row.id)}
+					{@const targetPath = remotePathParts(row.targetFilePath)}
+					{@const sourcePath = remotePathParts(row.sourceFilePath)}
 					<div class="rounded-md border border-border bg-background/55 p-3">
-						<div class="break-all font-mono text-xs font-medium text-foreground">
-							{row.targetFilePath}
+						<div class="break-words font-mono text-xs font-medium text-foreground">
+							{targetPath.filename}
 						</div>
 						<div class="mt-2 break-all font-mono text-[11px] text-muted-foreground">
-							from {row.sourceFilePath}
+							{targetPath.directory}
+						</div>
+						<div class="mt-3 border-t border-border/70 pt-2">
+							<div class="break-words font-mono text-[11px] text-muted-foreground">
+								from {sourcePath.filename}
+							</div>
+							<div class="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+								{sourcePath.directory}
+							</div>
 						</div>
 						{#if row.conflictAction === 'overwrite'}
 							<Badge

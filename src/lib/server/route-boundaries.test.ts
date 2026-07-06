@@ -174,18 +174,15 @@ describe('route and action boundaries', () => {
 		db.close();
 	});
 
-	test('task APIs expose active summaries and task detail logs', async () => {
+	test('task APIs expose active summaries and task detail lines', async () => {
 		const db = await freshDb();
 		const { enqueueTask } = await import('$lib/server/services/tasks');
-		const { log } = await import('$lib/server/services/logs');
+		const { createTaskRecorder } = await import('$lib/server/services/task-recorder');
 		const activeApi = await import('../../routes/api/tasks/active/+server');
 		const detailApi = await import('../../routes/api/tasks/[id]/+server');
 
 		const task = enqueueTask('scan_library_path', { libraryPathId: 'lib1' });
-		log('info', 'LibraryScanner', 'Library scan started', {
-			taskId: task.id,
-			summary: 'Library scan started: /tv'
-		});
+		createTaskRecorder(task.id).info('Library scan started: /tv');
 
 		const active = await responseJson(
 			await activeApi.GET(
@@ -208,7 +205,7 @@ describe('route and action boundaries', () => {
 		);
 		expect(detail).toMatchObject({
 			task: { id: task.id, targetKey: 'libraryPath:lib1' },
-			logs: [{ message: 'Library scan started', summary: 'Library scan started: /tv' }]
+			lines: [{ message: 'Library scan started: /tv' }]
 		});
 		db.close();
 	});

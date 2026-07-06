@@ -5,6 +5,7 @@ import posix from 'node:path/posix';
 import process from 'node:process';
 import Database from 'better-sqlite3';
 import { createClient } from 'webdav';
+import { scriptLogger } from '../logger.js';
 
 type ProbeArgs = {
 	planId?: string;
@@ -90,7 +91,7 @@ async function main() {
 	}
 
 	if (args.json) {
-		console.log(
+		scriptLogger.info(
 			JSON.stringify(
 				{
 					planId: source.planId,
@@ -251,21 +252,21 @@ function findProbeRows(args: ProbeArgs): ProbeRow[] {
 }
 
 function printPlan(source: ProbeRow, rows: ProbeRow[], args: ProbeArgs) {
-	console.log('Renarr WebDAV reconcile visibility probe');
-	console.log('');
-	console.log(`DB: ${getDatabasePath()}`);
-	console.log(`Source: ${source.sourceName} (${redactUrl(source.sourceUrl)})`);
-	console.log(`Plan: ${source.planId}`);
-	console.log(`Rows: ${rows.length}`);
-	console.log(`Modes: ${args.modes.join(', ')}`);
-	console.log(`Waits: ${args.waits.join(', ')}ms`);
-	console.log(`Sample source: ${source.sourceFilePath}`);
-	console.log(`Sample target: ${source.targetFilePath}`);
-	console.log('');
+	scriptLogger.info('Renarr WebDAV reconcile visibility probe');
+	scriptLogger.info('');
+	scriptLogger.info(`DB: ${getDatabasePath()}`);
+	scriptLogger.info(`Source: ${source.sourceName} (${redactUrl(source.sourceUrl)})`);
+	scriptLogger.info(`Plan: ${source.planId}`);
+	scriptLogger.info(`Rows: ${rows.length}`);
+	scriptLogger.info(`Modes: ${args.modes.join(', ')}`);
+	scriptLogger.info(`Waits: ${args.waits.join(', ')}ms`);
+	scriptLogger.info(`Sample source: ${source.sourceFilePath}`);
+	scriptLogger.info(`Sample target: ${source.targetFilePath}`);
+	scriptLogger.info('');
 }
 
 function printSnapshot(snapshot: ModeSnapshot) {
-	console.log(
+	scriptLogger.info(
 		[
 			`[${snapshot.mode}] ${snapshot.afterMs}ms`,
 			`rows=${snapshot.rows}`,
@@ -276,17 +277,17 @@ function printSnapshot(snapshot: ModeSnapshot) {
 		].join(' | ')
 	);
 	if (Object.keys(snapshot.listErrors).length > 0) {
-		console.log(`  list errors: ${JSON.stringify(snapshot.listErrors)}`);
+		scriptLogger.info(`  list errors: ${JSON.stringify(snapshot.listErrors)}`);
 	}
 	if (Object.keys(snapshot.existsErrors).length > 0) {
-		console.log(`  exists errors: ${JSON.stringify(snapshot.existsErrors)}`);
+		scriptLogger.info(`  exists errors: ${JSON.stringify(snapshot.existsErrors)}`);
 	}
 	if (snapshot.existsTargetMissingButListed.length > 0) {
-		console.log('  target exists false but target directory lists it:');
+		scriptLogger.info('  target exists false but target directory lists it:');
 		for (const target of snapshot.existsTargetMissingButListed.slice(0, 10)) {
-			console.log(`    ${target}`);
+			scriptLogger.info(`    ${target}`);
 		}
-		if (snapshot.existsTargetMissingButListed.length > 10) console.log('    ...');
+		if (snapshot.existsTargetMissingButListed.length > 10) scriptLogger.info('    ...');
 	}
 }
 
@@ -318,7 +319,7 @@ function parseArgs(argv: string[]): ProbeArgs {
 }
 
 function printHelp() {
-	console.log(`Usage:
+	scriptLogger.info(`Usage:
   pnpm exec tsx scripts/probes/webdav-reconcile-visibility-probe.ts --plan <id>
 
 Options:
@@ -430,6 +431,6 @@ function stringifyError(error: unknown) {
 }
 
 main().catch((error) => {
-	console.error(error instanceof Error ? error.message : String(error));
+	scriptLogger.error(error instanceof Error ? error.message : String(error));
 	process.exit(1);
 });

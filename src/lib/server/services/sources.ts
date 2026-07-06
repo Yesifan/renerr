@@ -12,7 +12,7 @@ import {
 import { WebDavFileClient } from '$lib/server/integrations/webdav-client';
 import { ApiError } from '$lib/server/api';
 import { normalizeRemotePath } from './paths';
-import { log } from './logs';
+import { createNodeLogger } from '$lib/server/logger';
 
 type SourceRow = {
 	id: string;
@@ -23,6 +23,8 @@ type SourceRow = {
 	createdAt: string;
 	updatedAt: string;
 };
+
+const webdavLogger = createNodeLogger('server', { component: 'WebDavClient' });
 
 export function listSources() {
 	return getDb().select().from(webdavSources).orderBy(asc(webdavSources.name)).all().map(mapSource);
@@ -94,11 +96,14 @@ export async function testWebdavConnection(input: unknown, id?: string) {
 	try {
 		await client.listDirectory('/');
 	} catch (error) {
-		log('error', 'WebDavClient', 'WebDAV connection test failed', {
-			url: parsed.url,
-			username: parsed.username,
-			error: error instanceof Error ? error.message : String(error)
-		});
+		webdavLogger.error(
+			{
+				url: parsed.url,
+				username: parsed.username,
+				err: error
+			},
+			'WebDAV connection test failed'
+		);
 		throw new ApiError('webdav.connection_failed', 'WebDAV connection failed', 400);
 	}
 	return { ok: true };
@@ -111,18 +116,35 @@ export async function testLibraryPath(input: unknown) {
 		await client.listDirectory(normalizeRemotePath(parsed.path));
 		return { ok: true };
 	} catch (error) {
-		log('error', 'WebDavClient', 'WebDAV library path test failed', {
-			sourceId: parsed.sourceId,
-			path: normalizeRemotePath(parsed.path),
-			error: error instanceof Error ? error.message : String(error)
-		});
+		webdavLogger.error(
+			{
+				sourceId: parsed.sourceId,
+				path: normalizeRemotePath(parsed.path),
+				err: error
+			},
+			'WebDAV library path test failed'
+		);
 		throw new ApiError('webdav.path_unreadable', 'WebDAV path is not readable', 400);
 	}
 }
 
 export async function browseWebdav(sourceId: string, path: string) {
 	const client = getClientForSource(sourceId);
-	const entries = await client.listDirectory(normalizeRemotePath(path));
+	const normalizedPath = normalizeRemotePath(path);
+	let entries: Awaited<ReturnType<typeof client.listDirectory>>;
+	try {
+		entries = await client.listDirectory(normalizedPath);
+	} catch (error) {
+		webdavLogger.error(
+			{
+				sourceId,
+				path: normalizedPath,
+				err: error
+			},
+			'WebDAV browse failed'
+		);
+		throw new ApiError('webdav.path_unreadable', 'WebDAV path is not readable', 400);
+	}
 	const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
 	return entries
 		.filter((entry) => entry.type === 'directory')

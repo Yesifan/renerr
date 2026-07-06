@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { useQueryClient } from '@tanstack/svelte-query';
 	import { Button } from '$lib/components/ui/button';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SectionPanel from '$lib/components/SectionPanel.svelte';
@@ -9,11 +10,13 @@
 	import SourceDialog from './SourceDialog.svelte';
 	import SourcesTable from './SourcesTable.svelte';
 	import { api, post, put } from '$lib/client/api';
+	import { queryKeys } from '$lib/client/query-keys';
 	import { messages as m } from '$lib/i18n';
 	import type { Library, PublicSettings, Source } from '$lib/schemas/domain';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+	const queryClient = useQueryClient();
 	let refreshedData = $state<{
 		sources: Source[];
 		libraries: Library[];
@@ -161,6 +164,17 @@
 		}
 	}
 
+	async function loadLibraryPathSuggestions(sourceId: string, parentPath: string) {
+		return queryClient.fetchQuery({
+			queryKey: queryKeys.webdavPathSuggestions(sourceId, parentPath),
+			queryFn: () =>
+				post<{ basename: string; type: 'directory' }[]>('/api/webdav/browse', {
+					sourceId,
+					path: parentPath
+				})
+		});
+	}
+
 	async function toggleAutoOrganize(library: Library, autoOrganize: boolean) {
 		busy = true;
 		try {
@@ -263,6 +277,7 @@
 	testLabel={m.action_test_connection()}
 	onSave={saveLibrary}
 	onTest={testLibraryPath}
+	onLoadPathSuggestions={loadLibraryPathSuggestions}
 />
 
 <SourceDialog

@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { executionRecords, libraryItems, renamePlanItems } from '$lib/server/db/schema';
+import { libraryItems } from '$lib/server/db/schema';
 import { posterUrl } from './tmdb';
 import { getClientForSource, getLibrary } from './sources';
 import { isVideoPath, joinRemote } from './paths';
@@ -67,31 +67,6 @@ export async function getItemDetail(id: string) {
 					library.mediaType === 'movie' ? 1 : 2,
 					library.mediaType
 				);
-	const records = getDb()
-		.select({
-			id: executionRecords.id,
-			sourcePath: executionRecords.sourcePath,
-			targetPath: executionRecords.targetPath,
-			status: executionRecords.status,
-			error: executionRecords.error,
-			contextJson: executionRecords.contextJson,
-			createdAt: executionRecords.createdAt
-		})
-		.from(executionRecords)
-		.innerJoin(renamePlanItems, eq(renamePlanItems.id, executionRecords.planItemId))
-		.where(eq(renamePlanItems.libraryItemId, id))
-		.orderBy(desc(executionRecords.createdAt))
-		.limit(50)
-		.all()
-		.map((record) => ({
-			id: record.id,
-			sourcePath: record.sourcePath,
-			targetPath: record.targetPath,
-			status: record.status,
-			error: record.error,
-			context: JSON.parse(record.contextJson || '{}'),
-			createdAt: record.createdAt
-		}));
 	return {
 		item,
 		library,
@@ -102,8 +77,7 @@ export async function getItemDetail(id: string) {
 			nonCompliantFileCount: item.nonCompliantFileCount,
 			lastScannedAt: item.lastScannedAt,
 			lastExecutionSummary: item.lastExecutionSummary
-		},
-		executionRecords: records
+		}
 	};
 }
 
