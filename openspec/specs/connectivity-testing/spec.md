@@ -1,9 +1,7 @@
 ## Purpose
 
 定义 WebDAV、TMDB 和开发探针的连通性测试能力，确保测试只验证必要边界、不会泄漏 secret，并为远端存储诊断提供可复现信号。
-
 ## Requirements
-
 ### Requirement: WebDAV 连接测试
 
 系统 SHALL 提供前端可调用的 WebDAV 连接测试，只验证认证和目录读取。
@@ -81,7 +79,7 @@
 
 ### Requirement: Library path 输入提供目录候选
 
-系统 SHALL 在添加 Library path 时提供基于当前 WebDAV source 的目录下拉候选和 autocomplete。候选加载 SHALL 使用只读目录读取，不得创建、移动、删除或改写远端路径。选择候选 SHALL NOT 自动触发 path test。
+系统 SHALL 在添加 Library path 时提供基于当前 WebDAV source 的目录下拉候选和 autocomplete。候选加载 SHALL 使用只读目录读取，不得创建、移动、删除或改写远端路径。选择候选 SHALL NOT 自动触发 path test。Library path autocomplete SHALL use the project-level async combobox component.
 
 #### Scenario: 用户编辑 path 输入
 
@@ -90,6 +88,7 @@
 - **AND** 候选 MUST 只包含直接子目录
 - **AND** UI MUST 在前端按已输入 basename 过滤候选
 - **AND** UI MUST 只在父目录变化时重新请求候选
+- **AND** UI MUST preserve keyboard navigation and screen-reader semantics through the combobox primitive
 
 #### Scenario: 用户选择目录候选
 
@@ -118,6 +117,12 @@
 - **THEN** UI MUST 清空或重新加载旧 source 的候选状态
 - **AND** 后续候选请求 MUST 使用新 source 的 URL 和凭据
 - **AND** 系统 MUST NOT 自动把 source URL 拆分或改写为更高层级根地址
+
+#### Scenario: 移动端使用 path autocomplete
+
+- **WHEN** 用户在移动端添加 Library path
+- **THEN** autocomplete options MUST remain tappable without horizontal overflow
+- **AND** dropdown/list height MUST be constrained so the dialog remains usable
 
 ### Requirement: 后端出站请求遵循代理环境变量
 
@@ -176,3 +181,4 @@
 - **THEN** the probe MUST clearly print the planned source and target before executing
 - **AND** the probe MUST record MOVE return result and subsequent visibility checkpoints
 - **AND** the probe result MUST NOT change the business executor's rule that MOVE request success/failure is the row execution result
+

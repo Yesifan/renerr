@@ -2,6 +2,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import EpisodeMappingInput from '$lib/components/EpisodeMappingInput.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import * as Table from '$lib/components/ui/table';
 	import type {
@@ -41,7 +42,7 @@
 	let rowSearchBusy = $state(false);
 	let rowSearchError = $state('');
 	let seasonStates = $state<Record<string, OptionState<TmdbSeasonOption>>>({});
-	let episodeStates = $state<Record<string, OptionState<TmdbEpisodeOption>>>({});
+	let episodeInputInvalid = $state<Record<string, boolean>>({});
 
 	type OptionState<T> = {
 		loading: boolean;
@@ -54,6 +55,9 @@
 	const validSelectedRows = $derived(selectedRows.filter((row) => row.status === 'valid'));
 	const noopRows = $derived(draft.rows.filter((row) => row.noop));
 	const hasInvalidSelectedRows = $derived(selectedRows.some((row) => row.status === 'invalid'));
+	const hasLocalEpisodeInputInvalid = $derived(
+		selectedRows.some((row) => episodeInputInvalid[row.id])
+	);
 	const unresolvedConflicts = $derived(
 		selectedRows.filter((row) => row.conflict && row.conflictAction !== 'overwrite').length
 	);
@@ -75,21 +79,6 @@
 		onUpdateRow({ ...row, conflictAction: checked === true ? 'overwrite' : null });
 	}
 
-	function updateNumber(row: RenamePlanDraftRow, field: 'season' | 'episode', value: string) {
-		if (!value.trim()) {
-			onUpdateRow({ ...row, [field]: null });
-			return;
-		}
-		const parsed = Number(value);
-		const valid = field === 'season' ? parsed >= 0 : parsed > 0;
-		const nextValue = Number.isInteger(parsed) && valid ? parsed : null;
-		const nextRow = { ...row, [field]: nextValue };
-		onUpdateRow({
-			...nextRow
-		});
-		if (field === 'season' && nextValue !== null) void ensureEpisodeOptions(nextRow, true);
-	}
-
 	async function ensureSeasonOptions(row: RenamePlanDraftRow, retry = false) {
 		if (row.mediaKind !== 'tv' || !row.sourceMediaId) return;
 		const key = row.sourceMediaId;
@@ -108,24 +97,6 @@
 		}
 	}
 
-	async function ensureEpisodeOptions(row: RenamePlanDraftRow, retry = false) {
-		if (row.mediaKind !== 'tv' || !row.sourceMediaId || row.season === null) return;
-		const key = episodeKey(row.sourceMediaId, row.season);
-		const state = episodeStates[key];
-		if (state?.loading || (state?.loaded && !retry) || (state?.error && !retry)) return;
-		episodeStates[key] = { loading: true, loaded: false, error: '', options: state?.options ?? [] };
-		try {
-			episodeStates[key] = {
-				loading: false,
-				loaded: true,
-				error: '',
-				options: await onLoadEpisodeOptions(row.sourceMediaId, row.season)
-			};
-		} catch (error) {
-			episodeStates[key] = { loading: false, loaded: false, error: String(error), options: [] };
-		}
-	}
-
 	function seasonOptions(row: RenamePlanDraftRow) {
 		const options = row.sourceMediaId ? (seasonStates[row.sourceMediaId]?.options ?? []) : [];
 		if (row.season === null || options.some((option) => option.number === row.season))
@@ -136,59 +107,33 @@
 		].sort((a, b) => a.number - b.number);
 	}
 
-	function episodeOptions(row: RenamePlanDraftRow) {
-		const options =
-			row.sourceMediaId && row.season !== null
-				? (episodeStates[episodeKey(row.sourceMediaId, row.season)]?.options ?? [])
-				: [];
-		if (row.episode === null || options.some((option) => option.episode === row.episode))
-			return options;
-		return [
-			...options,
-			{
-				season: row.season ?? 0,
-				episode: row.episode,
-				name: `当前值 E${row.episode}`,
-				airDate: null,
-				overview: ''
-			}
-		].sort((a, b) => a.episode - b.episode);
-	}
-
 	function seasonState(row: RenamePlanDraftRow) {
 		return row.sourceMediaId ? seasonStates[row.sourceMediaId] : undefined;
 	}
 
-	function episodeState(row: RenamePlanDraftRow) {
-		return row.sourceMediaId && row.season !== null
-			? episodeStates[episodeKey(row.sourceMediaId, row.season)]
-			: undefined;
-	}
-
-	function episodeKey(tmdbId: string, season: number) {
-		return `${tmdbId}:${season}`;
-	}
-
-	function seasonLabel(option: TmdbSeasonOption) {
-		const count = option.episodeCount === null ? '' : ` · ${option.episodeCount} 集`;
-		return `${option.name || `Season ${option.number}`}${count}`;
-	}
-
-	function episodeLabel(option: TmdbEpisodeOption) {
-		return option.name ? `E${option.episode} · ${option.name}` : `E${option.episode}`;
-	}
-
 	function optionStatus(row: RenamePlanDraftRow) {
 		const seasons = seasonState(row);
-		const episodes = episodeState(row);
-		if (seasons?.loading || episodes?.loading) return { tone: 'muted', text: '加载季集候选...' };
+		if (seasons?.loading) return { tone: 'muted', text: '加载季候选...' };
 		if (seasons?.error) return { tone: 'error', text: '季候选不可用，仍可手动输入' };
-		if (episodes?.error) return { tone: 'error', text: '集候选不可用，仍可手动输入' };
 		if (seasons && seasons.options.length === 0)
 			return { tone: 'muted', text: 'TMDB 没有季候选，可手动输入' };
-		if (row.season !== null && episodes && episodes.options.length === 0)
-			return { tone: 'muted', text: 'TMDB 没有集候选，可手动输入' };
-		return { tone: 'muted', text: '可输入候选外数字' };
+		return { tone: 'muted', text: '输入完整季/集或选择 TMDB 候选' };
+	}
+
+	function updateEpisodeMapping(
+		row: RenamePlanDraftRow,
+		mapping: { season: number; episode: number }
+	) {
+		onUpdateRow({ ...row, season: mapping.season, episode: mapping.episode });
+	}
+
+	function updateEpisodeInputInvalid(rowId: string, invalid: boolean) {
+		episodeInputInvalid = { ...episodeInputInvalid, [rowId]: invalid };
+	}
+
+	async function loadEpisodeOptions(row: RenamePlanDraftRow, season: number) {
+		if (row.mediaKind !== 'tv' || !row.sourceMediaId) return [];
+		return onLoadEpisodeOptions(row.sourceMediaId, season);
 	}
 
 	function openRowSearch(row: RenamePlanDraftRow) {
@@ -224,6 +169,7 @@
 		});
 		activeRowId = null;
 		rowResults = [];
+		updateEpisodeInputInvalid(row.id, false);
 		void ensureSeasonOptions({ ...row, sourceMediaId: String(result.id) }, true);
 	}
 
@@ -397,46 +343,20 @@
 							<Table.Cell>
 								{#if row.mediaKind === 'tv'}
 									<div class="grid gap-2">
-										<div class="grid grid-cols-2 gap-2">
-											<div>
-												<label class="sr-only" for={`season-${row.id}`}>季</label>
-												<Input
-													id={`season-${row.id}`}
-													class="w-20"
-													type="number"
-													min="0"
-													list={`season-options-${row.id}`}
-													value={row.season ?? ''}
-													onfocus={() => ensureSeasonOptions(row, true)}
-													oninput={(event) =>
-														updateNumber(row, 'season', event.currentTarget.value)}
-												/>
-												<datalist id={`season-options-${row.id}`}>
-													{#each seasonOptions(row) as option (option.number)}
-														<option value={option.number}>{seasonLabel(option)}</option>
-													{/each}
-												</datalist>
-											</div>
-											<div>
-												<label class="sr-only" for={`episode-${row.id}`}>集</label>
-												<Input
-													id={`episode-${row.id}`}
-													class="w-20"
-													type="number"
-													min="1"
-													list={`episode-options-${row.id}`}
-													value={row.episode ?? ''}
-													onfocus={() => ensureEpisodeOptions(row, true)}
-													oninput={(event) =>
-														updateNumber(row, 'episode', event.currentTarget.value)}
-												/>
-												<datalist id={`episode-options-${row.id}`}>
-													{#each episodeOptions(row) as option (option.episode)}
-														<option value={option.episode}>{episodeLabel(option)}</option>
-													{/each}
-												</datalist>
-											</div>
-										</div>
+										<EpisodeMappingInput
+											id={`episode-mapping-${row.id}`}
+											sourceKey={row.sourceMediaId}
+											season={row.season}
+											episode={row.episode}
+											seasonOptions={seasonOptions(row)}
+											seasonLoading={seasonState(row)?.loading}
+											seasonError={seasonState(row)?.error}
+											disabled={busy || row.noop}
+											onLoadSeasons={() => ensureSeasonOptions(row, true)}
+											onLoadEpisodes={(season) => loadEpisodeOptions(row, season)}
+											onCommit={(mapping) => updateEpisodeMapping(row, mapping)}
+											onInvalidChange={(invalid) => updateEpisodeInputInvalid(row.id, invalid)}
+										/>
 										<div class="min-h-4 text-[11px] text-muted-foreground">
 											{#if optionStatus(row).tone === 'error'}
 												<span class="text-red-300">{optionStatus(row).text}</span>
@@ -447,9 +367,6 @@
 									</div>
 								{:else}
 									<span class="text-muted-foreground">电影</span>
-								{/if}
-								{#if row.status === 'invalid'}
-									<div class="mt-2 text-xs text-red-300">{row.errorCode}</div>
 								{/if}
 							</Table.Cell>
 							<Table.Cell>
@@ -476,6 +393,7 @@
 				disabled={busy ||
 					validSelectedRows.length === 0 ||
 					hasInvalidSelectedRows ||
+					hasLocalEpisodeInputInvalid ||
 					unresolvedConflicts > 0}
 				onclick={() => (step = 'confirm')}
 			>

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import AsyncCombobox from '$lib/components/AsyncCombobox.svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Field from '$lib/components/ui/field';
-	import { Input } from '$lib/components/ui/input';
 	import * as Select from '$lib/components/ui/select';
 	import {
 		filterDirectorySuggestions,
@@ -143,40 +143,30 @@
 
 			<Field.Field>
 				<Field.Label for="library-path">路径</Field.Label>
-				<Input
+				<AsyncCombobox
 					id="library-path"
 					value={form.path}
+					options={filteredSuggestions}
+					loading={suggestions.loading}
+					loaded={suggestions.loaded}
+					error={suggestions.error}
 					placeholder="/tv"
-					onfocus={() => loadSuggestions()}
-					oninput={(event) => updatePath(event.currentTarget.value)}
-				/>
-				<div class="mt-2 min-h-6 text-xs text-muted-foreground">
-					{#if !form.sourceId}
-						选择媒体源后可浏览目录候选。
-					{:else if suggestions.sourceId !== form.sourceId && suggestions.loaded}
-						聚焦输入框加载当前媒体源目录候选。
-					{:else if suggestions.loading}
-						正在加载目录候选...
-					{:else if suggestions.error}
-						<span class="text-red-300">目录候选不可用，仍可手动输入。</span>
-					{:else if suggestions.loaded && filteredSuggestions.length === 0}
-						没有匹配目录，可手动输入。
-					{:else if suggestions.loaded}
-						<div class="grid gap-1">
-							{#each filteredSuggestions as option (option.basename)}
-								<button
-									type="button"
-									class="rounded-md border border-border bg-muted/20 px-3 py-2 text-left font-mono text-[11px] text-foreground transition-colors hover:bg-muted/40"
-									onclick={() => chooseSuggestion(option)}
-								>
-									{joinRemotePath(pathQuery.parentPath, option.basename)}
-								</button>
-							{/each}
-						</div>
-					{:else}
-						聚焦输入框加载当前目录候选。
-					{/if}
-				</div>
+					emptyText={form.sourceId ? '没有匹配目录，可手动输入。' : '选择媒体源后可浏览目录候选。'}
+					loadingText="正在加载目录候选..."
+					errorText="目录候选不可用，仍可手动输入。"
+					idleText={form.sourceId ? '聚焦输入框加载当前目录候选。' : '选择媒体源后可浏览目录候选。'}
+					getKey={(option) => option.basename}
+					getLabel={(option) => joinRemotePath(pathQuery.parentPath, option.basename)}
+					onInput={updatePath}
+					onFocus={() => loadSuggestions()}
+					onSelect={chooseSuggestion}
+				>
+					{#snippet option(option)}
+						<span class="min-w-0 truncate font-mono text-[11px]">
+							{joinRemotePath(pathQuery.parentPath, option.basename)}
+						</span>
+					{/snippet}
+				</AsyncCombobox>
 			</Field.Field>
 
 			<Field.Field>

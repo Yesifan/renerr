@@ -1,9 +1,7 @@
 ## Purpose
 
 定义 Renarr 深色管理台 shell、媒体库页面、item detail 和整理流程的 UI 信息架构与视觉规则。
-
 ## Requirements
-
 ### Requirement: V1 默认深色媒体管理工具风
 
 系统 SHALL 使用默认深色的媒体管理工具视觉风格，并且 V1 不提供主题切换入口。
@@ -22,6 +20,14 @@
 
 - **WHEN** 前端页面需要按钮、卡片、dialog、select、switch、checkbox、input、field、table、badge、empty、skeleton 或 sidebar
 - **THEN** UI MUST 优先使用已安装或可新增的 shadcn-svelte 组件，而不是自写等价基础控件或使用原生 select
+
+#### Scenario: 页面需要复杂业务控件
+
+- **WHEN** 前端页面需要复杂交互控件
+- **AND** shadcn-svelte 没有可用组件或现有组件无法表达业务候选、异步加载、键盘导航、移动端布局或可访问性要求
+- **THEN** UI MUST build a project-level custom component
+- **AND** the component SHOULD use Bits UI primitives and shadcn/Tailwind semantic tokens
+- **AND** implementation MUST NOT modify shadcn base components for one-off visual needs
 
 #### Scenario: 页面需要项目级分区
 
@@ -313,3 +319,4 @@
 #### Scenario: 全局日志保留系统事件
 - **WHEN** 日志不属于任何任务
 - **THEN** 全局日志页 MUST 继续展示该日志
+

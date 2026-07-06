@@ -9,6 +9,7 @@ Renarr 是深色管理台风格应用
 ## UX 与信息架构
 
 - 有限使用 shadcn 组件进行构建，如果没有对应组件则使用 shadcn cli 添加
+- 当 UI 交互复杂且 shadcn-svelte 没有可用组件或无法表达业务语义时，应构建项目级自定义 UI 组件；优先复用 Bits UI primitive 和 shadcn/Tailwind 语义 token，不要为局部需求修改 shadcn 基础组件。
 - 构建 UX 交互良好的影视库管理界面
 - “添加”类操作不要常驻为内容 card；使用模态框承载添加表单。
 - “修改”类操作保留在原位置内联编辑，并提供明确的保存按钮。
@@ -103,6 +104,26 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u al
 ```
 
 You are able to use the Svelte MCP server, where you have access to comprehensive Svelte 5 and SvelteKit documentation. Here's how to use the available tools effectively:
+
+## I18ns
+
+使用 `@inlang/paraglide-js` 进行 i18n，V1 只配置 `zh-CN`；UI 语言是浏览器偏好，不写入 SQLite。
+
+对于使用前端 UI 文案默认使用 `@inlang/paraglide-js` 支持 i18n；后端、worker、日志 message 使用英文原文；
+
+### 翻译文件
+
+- zh: `messages/zh-CN.json`
+
+### 使用方法
+
+```ts
+import { messages as m } from '$lib/i18n';
+
+m.toast_test_succeeded();
+```
+
+# MCP
 
 ## Available Svelte MCP Tools:
 

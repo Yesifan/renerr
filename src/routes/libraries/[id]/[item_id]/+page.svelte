@@ -33,6 +33,8 @@
 	let searchResults = $state<TmdbResult[]>([]);
 	let manualSearchBusy = $state(false);
 	let manualSearchError = $state('');
+
+	const TMDB_OPTION_STALE_TIME_MS = 1000 * 60 * 30;
 	let manualDialogOpen = $state(false);
 	let planDialogOpen = $state(false);
 	let recognizedItem = $state<Item | null>(null);
@@ -149,7 +151,8 @@
 	async function loadSeasonOptions(tmdbId: string) {
 		return queryClient.fetchQuery({
 			queryKey: queryKeys.tmdbTvSeasons(tmdbId),
-			queryFn: () => api<TmdbSeasonOption[]>(`/api/tmdb/tv/${encodeURIComponent(tmdbId)}/seasons`)
+			queryFn: () => api<TmdbSeasonOption[]>(`/api/tmdb/tv/${encodeURIComponent(tmdbId)}/seasons`),
+			staleTime: TMDB_OPTION_STALE_TIME_MS
 		});
 	}
 
@@ -159,7 +162,8 @@
 			queryFn: () =>
 				api<TmdbEpisodeOption[]>(
 					`/api/tmdb/tv/${encodeURIComponent(tmdbId)}/seasons/${season}/episodes`
-				)
+				),
+			staleTime: TMDB_OPTION_STALE_TIME_MS
 		});
 	}
 
