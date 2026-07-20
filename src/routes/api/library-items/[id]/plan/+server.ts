@@ -1,6 +1,14 @@
 import { apiError, ok } from '$lib/server/api';
-import { createDraftForItem } from '$lib/server/services/planner';
+import { createDraftForItem, getConfirmedPlanForItem } from '$lib/server/services/planner';
 import type { RequestEvent } from './$types';
+
+export function GET(event: RequestEvent) {
+	try {
+		return ok(getConfirmedPlanForItem(event.params.id));
+	} catch (error) {
+		return apiError(error);
+	}
+}
 
 export async function POST(event: RequestEvent) {
 	try {

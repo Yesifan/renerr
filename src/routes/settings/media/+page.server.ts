@@ -87,6 +87,7 @@ export const actions = {
 					libraryPathInputSchema.parse({
 						sourceId: requiredString(formData, 'sourceId'),
 						path: requiredString(formData, 'path'),
+						organizeTargetPath: optionalString(formData, 'organizeTargetPath') ?? null,
 						mediaType: requiredString(formData, 'mediaType'),
 						autoOrganize: booleanValue(formData, 'autoOrganize')
 					})

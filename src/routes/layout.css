@@ -1,3 +1,5 @@
+/* shadcn layout */
+
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';

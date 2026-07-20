@@ -4,6 +4,7 @@ import {
 	formatEpisodeMappingDisplayLabel,
 	formatEpisodeMappingInput,
 	formatEpisodeMappingPreview,
+	isEpisodeMappingInputInvalid,
 	parseEpisodeMappingInput
 } from './episode-mapping';
 
@@ -47,6 +48,13 @@ describe('episode mapping input', () => {
 		expect(formatEpisodeMappingPreview({ season: 1, episode: 8 })).toBe('S01E08');
 		expect(formatEpisodeMappingPreview({ season: 12, episode: 10 })).toBe('S12E10');
 		expect(formatEpisodeMappingPreview(null)).toBe('');
+	});
+
+	test('only reports local invalid input after the user edits it', () => {
+		expect(isEpisodeMappingInputInvalid('', '1/6', false)).toBe(false);
+		expect(isEpisodeMappingInputInvalid('1/', '1/6', true)).toBe(true);
+		expect(isEpisodeMappingInputInvalid('1/6', '1/6', true)).toBe(false);
+		expect(isEpisodeMappingInputInvalid('2/6', '1/6', true)).toBe(false);
 	});
 
 	test('formats blurred display labels from optional episode metadata', () => {

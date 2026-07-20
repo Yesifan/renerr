@@ -1,5 +1,5 @@
 import { ApiError } from '$lib/server/api';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
 	libraryItems,
@@ -268,6 +268,28 @@ export function getPlan(planId: string) {
 	};
 }
 
+export function getConfirmedPlanForItem(itemId: string) {
+	const rows = getDb()
+		.select({
+			id: renamePlans.id,
+			libraryPathId: renamePlans.libraryPathId,
+			mode: renamePlans.mode,
+			status: renamePlans.status,
+			createdAt: renamePlans.createdAt
+		})
+		.from(renamePlanItems)
+		.innerJoin(renamePlans, eq(renamePlans.id, renamePlanItems.planId))
+		.where(and(eq(renamePlanItems.libraryItemId, itemId), eq(renamePlans.status, 'confirmed')))
+		.orderBy(desc(renamePlans.createdAt))
+		.all();
+	const plan = rows[0];
+	if (!plan) return null;
+	return {
+		...plan,
+		itemCount: rows.filter((row) => row.id === plan.id).length
+	};
+}
+
 async function buildRow(
 	item: PlanningItem,
 	library: ReturnType<typeof getLibrary>,
@@ -285,7 +307,7 @@ async function buildRow(
 	const target =
 		status === 'valid'
 			? targetPathFor(
-					library.path,
+					effectiveOrganizeRoot(library),
 					library.mediaType,
 					sourceFilePath,
 					{
@@ -327,6 +349,10 @@ async function buildRow(
 		status,
 		errorCode: status === 'invalid' ? 'plan.invalid' : null
 	};
+}
+
+function effectiveOrganizeRoot(library: { path: string; organizeTargetPath?: string | null }) {
+	return library.organizeTargetPath ?? library.path;
 }
 
 function createConfirmedPlan(libraryPathId: string, mode: Mode, createdBy: string) {

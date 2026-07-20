@@ -11,11 +11,13 @@
 		pathQueryParts,
 		type DirectorySuggestion
 	} from '$lib/client/path-suggestions';
+	import { messages as m } from '$lib/i18n';
 	import type { MediaType, Source } from '$lib/schemas/domain';
 
 	type LibraryForm = {
 		sourceId: string;
 		path: string;
+		organizeTargetPath: string | null;
 		mediaType: MediaType;
 		autoOrganize: boolean;
 	};
@@ -28,6 +30,7 @@
 		testLabel: string;
 		onSave: () => void | Promise<void>;
 		onTest: () => void | Promise<void>;
+		onTestTarget: () => void | Promise<void>;
 		onLoadPathSuggestions: (sourceId: string, parentPath: string) => Promise<DirectorySuggestion[]>;
 	};
 
@@ -39,17 +42,31 @@
 		testLabel,
 		onSave,
 		onTest,
+		onTestTarget,
 		onLoadPathSuggestions
 	}: Props = $props();
 
-	let suggestions = $state<{
+	type SuggestionState = {
 		sourceId: string;
 		parentPath: string;
 		loading: boolean;
 		loaded: boolean;
 		error: string;
 		options: DirectorySuggestion[];
-	}>({
+	};
+
+	function emptySuggestionState(): SuggestionState {
+		return {
+			sourceId: '',
+			parentPath: '',
+			loading: false,
+			loaded: false,
+			error: '',
+			options: []
+		};
+	}
+
+	let suggestions = $state<SuggestionState>({
 		sourceId: '',
 		parentPath: '',
 		loading: false,
@@ -57,6 +74,7 @@
 		error: '',
 		options: []
 	});
+	let targetSuggestions = $state<SuggestionState>(emptySuggestionState());
 
 	const mediaTypeLabels: Record<LibraryForm['mediaType'], string> = {
 		tv: '电视剧',
@@ -68,10 +86,19 @@
 	);
 
 	const pathQuery = $derived(pathQueryParts(form.path));
+	const targetPathQuery = $derived(pathQueryParts(form.organizeTargetPath ?? '/'));
 	const filteredSuggestions = $derived.by(() => {
 		if (suggestions.sourceId !== form.sourceId || suggestions.parentPath !== pathQuery.parentPath)
 			return [];
 		return filterDirectorySuggestions(suggestions.options, pathQuery.basename);
+	});
+	const filteredTargetSuggestions = $derived.by(() => {
+		if (
+			targetSuggestions.sourceId !== form.sourceId ||
+			targetSuggestions.parentPath !== targetPathQuery.parentPath
+		)
+			return [];
+		return filterDirectorySuggestions(targetSuggestions.options, targetPathQuery.basename);
 	});
 
 	async function loadSuggestions(retry = false) {
@@ -116,6 +143,55 @@
 
 	function chooseSuggestion(option: DirectorySuggestion) {
 		form.path = joinRemotePath(pathQuery.parentPath, option.basename);
+	}
+
+	async function loadTargetSuggestions(retry = false) {
+		if (!form.sourceId || form.organizeTargetPath === null) return;
+		const parentPath = targetPathQuery.parentPath;
+		const sameQuery =
+			targetSuggestions.sourceId === form.sourceId && targetSuggestions.parentPath === parentPath;
+		if (sameQuery && (targetSuggestions.loading || (targetSuggestions.loaded && !retry))) return;
+		targetSuggestions = {
+			sourceId: form.sourceId,
+			parentPath,
+			loading: true,
+			loaded: false,
+			error: '',
+			options: sameQuery ? targetSuggestions.options : []
+		};
+		try {
+			targetSuggestions = {
+				sourceId: form.sourceId,
+				parentPath,
+				loading: false,
+				loaded: true,
+				error: '',
+				options: await onLoadPathSuggestions(form.sourceId, parentPath)
+			};
+		} catch (error) {
+			targetSuggestions = {
+				sourceId: form.sourceId,
+				parentPath,
+				loading: false,
+				loaded: false,
+				error: String(error),
+				options: []
+			};
+		}
+	}
+
+	function updateTargetPath(value: string) {
+		form.organizeTargetPath = value;
+		void loadTargetSuggestions();
+	}
+
+	function chooseTargetSuggestion(option: DirectorySuggestion) {
+		form.organizeTargetPath = joinRemotePath(targetPathQuery.parentPath, option.basename);
+	}
+
+	function toggleTargetPath(enabled: boolean) {
+		form.organizeTargetPath = enabled ? form.organizeTargetPath || '/' : null;
+		targetSuggestions = emptySuggestionState();
 	}
 </script>
 
@@ -186,12 +262,73 @@
 				<Checkbox id="library-auto-organize" bind:checked={form.autoOrganize} />
 				<Field.Label for="library-auto-organize">自动整理高置信条目</Field.Label>
 			</Field.Field>
+
+			<Field.Field orientation="horizontal">
+				<Checkbox
+					id="library-use-target-path"
+					checked={form.organizeTargetPath !== null}
+					onCheckedChange={(checked) => toggleTargetPath(Boolean(checked))}
+				/>
+				<div class="grid gap-1">
+					<Field.Label for="library-use-target-path">{m.library_path_target_enable()}</Field.Label>
+					<Field.Description>
+						{form.organizeTargetPath !== null
+							? m.library_path_target_hint()
+							: m.library_path_target_disabled_hint()}
+					</Field.Description>
+				</div>
+			</Field.Field>
+
+			{#if form.organizeTargetPath !== null}
+				<Field.Field>
+					<Field.Label for="library-target-path">{m.library_path_target_label()}</Field.Label>
+					<AsyncCombobox
+						id="library-target-path"
+						value={form.organizeTargetPath}
+						options={filteredTargetSuggestions}
+						loading={targetSuggestions.loading}
+						loaded={targetSuggestions.loaded}
+						error={targetSuggestions.error}
+						placeholder={m.library_path_target_placeholder()}
+						emptyText={form.sourceId
+							? m.library_path_target_empty_text()
+							: m.library_path_target_choose_source_text()}
+						loadingText={m.library_path_target_loading_text()}
+						errorText={m.library_path_target_error_text()}
+						idleText={form.sourceId
+							? m.library_path_target_idle_text()
+							: m.library_path_target_choose_source_text()}
+						getKey={(option) => option.basename}
+						getLabel={(option) => joinRemotePath(targetPathQuery.parentPath, option.basename)}
+						onInput={updateTargetPath}
+						onFocus={() => loadTargetSuggestions()}
+						onSelect={chooseTargetSuggestion}
+					>
+						{#snippet option(option)}
+							<span class="min-w-0 truncate font-mono text-[11px]">
+								{joinRemotePath(targetPathQuery.parentPath, option.basename)}
+							</span>
+						{/snippet}
+					</AsyncCombobox>
+				</Field.Field>
+			{/if}
 		</Field.Group>
 
 		<Dialog.Footer class="justify-between sm:justify-between">
-			<Button variant="outline" disabled={busy || !form.sourceId || !form.path} onclick={onTest}>
-				{testLabel}
-			</Button>
+			<div class="flex flex-wrap gap-2">
+				<Button variant="outline" disabled={busy || !form.sourceId || !form.path} onclick={onTest}>
+					{testLabel}
+				</Button>
+				{#if form.organizeTargetPath !== null}
+					<Button
+						variant="outline"
+						disabled={busy || !form.sourceId || !form.organizeTargetPath}
+						onclick={onTestTarget}
+					>
+						{m.action_test_target_path()}
+					</Button>
+				{/if}
+			</div>
 			<div class="flex gap-2">
 				<Button variant="outline" disabled={busy} onclick={() => (open = false)}>取消</Button>
 				<Button disabled={busy} onclick={onSave}>保存</Button>

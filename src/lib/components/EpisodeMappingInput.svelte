@@ -6,6 +6,7 @@
 		formatEpisodeMappingDisplayLabel,
 		formatEpisodeMappingInput,
 		formatEpisodeMappingPreview,
+		isEpisodeMappingInputInvalid,
 		parseEpisodeMappingInput,
 		type EpisodeMapping
 	} from '$lib/client/episode-mapping';
@@ -49,11 +50,14 @@
 	let episodeError = $state('');
 	let episodeOptions = $state<TmdbEpisodeOption[]>([]);
 	let focused = $state(false);
+	let inputTouched = $state(false);
 
 	const committedInput = $derived(formatEpisodeMappingInput(season, episode));
 	let inputValue = $state('');
 	const parseResult = $derived(parseEpisodeMappingInput(inputValue));
-	const localInvalid = $derived(parseResult.status === 'invalid' && inputValue !== committedInput);
+	const localInvalid = $derived(
+		isEpisodeMappingInputInvalid(inputValue, committedInput, inputTouched)
+	);
 	const committedPreview = $derived(
 		season === null || episode === null ? '' : formatEpisodeMappingPreview({ season, episode })
 	);
@@ -129,6 +133,7 @@
 
 	function handleInput(event: Event) {
 		const next = event.currentTarget instanceof HTMLInputElement ? event.currentTarget.value : '';
+		inputTouched = true;
 		inputValue = next;
 		selectedValue = '';
 		open = true;
@@ -154,6 +159,7 @@
 
 		if (selected.kind === 'season') {
 			const selectedSeason = selected.option.number;
+			inputTouched = true;
 			inputValue = `${selectedSeason}/`;
 			focused = true;
 			selectedValue = '';

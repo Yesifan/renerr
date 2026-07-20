@@ -92,6 +92,33 @@ describe('task observability', () => {
 		db.close();
 	});
 
+	test('task history can filter rename execution tasks beyond the default mixed queue view', async () => {
+		const db = await freshDb();
+		for (let index = 0; index < 3; index += 1) {
+			db.prepare(
+				`insert into tasks (id, type, target_key, state, payload_json, created_at)
+				 values (?, 'scan_library_path', ?, 'succeeded', '{}', ?)`
+			).run(`scan${index}`, `libraryPath:lib${index}`, `2026-01-01T00:00:0${index}.000Z`);
+		}
+		db.prepare(
+			`insert into tasks (id, type, target_key, state, payload_json, created_at, finished_at)
+			 values ('rename1', 'execute_rename_plan', 'renamePlan:plan1', 'succeeded',
+			  '{"planId":"plan1"}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:01.000Z')`
+		).run();
+		const { listTasks } = await import('./tasks');
+
+		expect(listTasks({ limit: 2 }).map((task) => task.id)).not.toContain('rename1');
+		expect(listTasks({ type: 'execute_rename_plan', limit: 10 })).toMatchObject([
+			{
+				id: 'rename1',
+				type: 'execute_rename_plan',
+				targetKey: 'renamePlan:plan1',
+				state: 'succeeded'
+			}
+		]);
+		db.close();
+	});
+
 	test('enqueueTask rejects terminal rename plans', async () => {
 		const db = await freshDb();
 		seedLibrary(db);

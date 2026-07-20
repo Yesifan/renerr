@@ -467,8 +467,8 @@ function logEmptyItem(recorder: TaskRecorder | null, libraryItemId: string, topL
 
 function enqueuePlanCreationForItem(item: LibraryItem, recorder: TaskRecorder | null) {
 	if (item.status === 'pending_review') return null;
-	if (item.status === 'organized' && item.nonCompliantFileCount <= 0) return null;
 	if (item.status !== 'identified' && item.status !== 'organized') return null;
+	if (item.videoFileCount <= 0) return null;
 	const task = enqueueTask('create_rename_plan_for_item', { libraryItemId: item.id });
 	recorder?.info(`${item.topLevelPath} queued rename plan task ${task.id}`);
 	return task;

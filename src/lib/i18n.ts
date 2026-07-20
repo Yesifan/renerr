@@ -26,9 +26,20 @@ export function statusLabel(status: string, reason?: string | null) {
 	return status === 'pending_review' && reason ? `${label} · ${reason}` : label;
 }
 
+export function taskTypeLabel(type: string) {
+	const labels: Record<string, () => string> = {
+		scan_library_path: m.task_filter_scan_library_path,
+		scan_library_item: m.task_filter_scan_library_item,
+		create_rename_plan_for_item: m.task_filter_create_rename_plan_for_item,
+		execute_rename_plan: m.task_filter_execute_rename_plan
+	};
+	return labels[type]?.() ?? type;
+}
+
 export function errorLabel(code?: string, fallback?: string) {
 	const labels: Record<string, () => string> = {
 		validation_failed: m.error_validation_failed,
+		'library.target_path_descendant': m.error_library_target_path_descendant,
 		'webdav.connection_failed': m.error_webdav_connection_failed,
 		'webdav.path_unreadable': m.error_webdav_path_unreadable,
 		'tmdb.connection_failed': m.error_tmdb_connection_failed,

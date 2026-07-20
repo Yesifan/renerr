@@ -33,13 +33,15 @@ export const webdavSourceInputSchema = z.object({
 export const libraryPathInputSchema = z.object({
 	sourceId: z.string().min(1),
 	path: z.string().trim().min(1),
+	organizeTargetPath: z.string().trim().min(1).nullable().optional(),
 	mediaType: mediaTypeSchema,
 	autoOrganize: z.boolean().default(false)
 });
 
 export const libraryPathUpdateSchema = z
 	.object({
-		autoOrganize: z.boolean().optional()
+		autoOrganize: z.boolean().optional(),
+		organizeTargetPath: z.string().trim().min(1).nullable().optional()
 	})
 	.strict();
 
@@ -110,6 +112,7 @@ export type Library = {
 	sourceId: string;
 	sourceName: string;
 	path: string;
+	organizeTargetPath: string | null;
 	mediaType: MediaType;
 	autoOrganize: boolean;
 };
@@ -194,6 +197,15 @@ export type RenamePlanDraft = {
 	createdAt: string;
 	updatedAt: string;
 	expiresAt: string;
+};
+
+export type RenamePlanSummary = {
+	id: string;
+	libraryPathId: string;
+	mode: string;
+	status: string;
+	itemCount: number;
+	createdAt: string;
 };
 
 export type RenamePlanDraftRow = {

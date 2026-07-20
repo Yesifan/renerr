@@ -100,7 +100,7 @@ export async function testWebdavConnection(input: unknown, id?: string) {
 			{
 				url: parsed.url,
 				username: parsed.username,
-				err: error
+				err: safeWebdavError(error)
 			},
 			'WebDAV connection test failed'
 		);
@@ -120,7 +120,7 @@ export async function testLibraryPath(input: unknown) {
 			{
 				sourceId: parsed.sourceId,
 				path: normalizeRemotePath(parsed.path),
-				err: error
+				err: safeWebdavError(error)
 			},
 			'WebDAV library path test failed'
 		);
@@ -139,7 +139,7 @@ export async function browseWebdav(sourceId: string, path: string) {
 			{
 				sourceId,
 				path: normalizedPath,
-				err: error
+				err: safeWebdavError(error)
 			},
 			'WebDAV browse failed'
 		);
@@ -158,6 +158,7 @@ export function listLibraries() {
 			sourceId: libraryPaths.sourceId,
 			sourceName: webdavSources.name,
 			path: libraryPaths.path,
+			organizeTargetPath: libraryPaths.organizeTargetPath,
 			mediaType: libraryPaths.mediaType,
 			autoOrganize: libraryPaths.autoOrganize,
 			createdAt: libraryPaths.createdAt,
@@ -177,6 +178,7 @@ export function getLibrary(id: string) {
 			sourceId: libraryPaths.sourceId,
 			sourceName: webdavSources.name,
 			path: libraryPaths.path,
+			organizeTargetPath: libraryPaths.organizeTargetPath,
 			mediaType: libraryPaths.mediaType,
 			autoOrganize: libraryPaths.autoOrganize,
 			createdAt: libraryPaths.createdAt,
@@ -192,6 +194,11 @@ export function getLibrary(id: string) {
 
 export function createLibrary(input: unknown) {
 	const parsed = libraryPathInputSchema.parse(input);
+	const normalizedPath = normalizeRemotePath(parsed.path);
+	const organizeTargetPath = normalizeOrganizeTargetPath(
+		normalizedPath,
+		parsed.organizeTargetPath ?? null
+	);
 	const id = newId();
 	const now = nowIso();
 	getDb()
@@ -199,7 +206,8 @@ export function createLibrary(input: unknown) {
 		.values({
 			id,
 			sourceId: parsed.sourceId,
-			path: normalizeRemotePath(parsed.path),
+			path: normalizedPath,
+			organizeTargetPath,
 			mediaType: parsed.mediaType,
 			autoOrganize: parsed.autoOrganize,
 			createdAt: now,
@@ -213,12 +221,46 @@ export function updateLibrary(id: string, input: unknown) {
 	const parsed = libraryPathUpdateSchema.parse(input);
 	const existing = getLibrary(id);
 	const now = nowIso();
+	const organizeTargetPath =
+		'organizeTargetPath' in parsed
+			? normalizeOrganizeTargetPath(existing.path, parsed.organizeTargetPath ?? null)
+			: existing.organizeTargetPath;
 	getDb()
 		.update(libraryPaths)
-		.set({ autoOrganize: parsed.autoOrganize ?? existing.autoOrganize, updatedAt: now })
+		.set({
+			autoOrganize: parsed.autoOrganize ?? existing.autoOrganize,
+			organizeTargetPath,
+			updatedAt: now
+		})
 		.where(eq(libraryPaths.id, existing.id))
 		.run();
 	return getLibrary(id);
+}
+
+export function effectiveOrganizeRoot(library: {
+	path: string;
+	organizeTargetPath?: string | null;
+}) {
+	return library.organizeTargetPath ?? library.path;
+}
+
+function normalizeOrganizeTargetPath(libraryPath: string, input: string | null) {
+	if (!input) return null;
+	const targetPath = normalizeRemotePath(input);
+	if (targetPath === libraryPath) return null;
+	if (isDescendantPath(libraryPath, targetPath)) {
+		throw new ApiError(
+			'library.target_path_descendant',
+			'Organize target path cannot be inside the library path',
+			400
+		);
+	}
+	return targetPath;
+}
+
+function isDescendantPath(parent: string, candidate: string) {
+	if (parent === '/') return candidate !== '/';
+	return candidate.startsWith(`${parent}/`);
 }
 
 function mapSource(row: SourceRow) {
@@ -232,11 +274,18 @@ function mapSource(row: SourceRow) {
 	};
 }
 
+function safeWebdavError(error: unknown) {
+	return {
+		name: error instanceof Error ? error.name : typeof error
+	};
+}
+
 function mapLibrary(row: {
 	id: string;
 	sourceId: string;
 	sourceName: string;
 	path: string;
+	organizeTargetPath: string | null;
 	mediaType: 'movie' | 'tv';
 	autoOrganize: boolean;
 	createdAt: string;
@@ -247,6 +296,7 @@ function mapLibrary(row: {
 		sourceId: row.sourceId,
 		sourceName: row.sourceName,
 		path: row.path,
+		organizeTargetPath: row.organizeTargetPath,
 		mediaType: row.mediaType,
 		autoOrganize: row.autoOrganize,
 		createdAt: row.createdAt,

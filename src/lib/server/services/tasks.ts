@@ -98,14 +98,18 @@ function findActiveTask(type: string, targetKey: string) {
 	return row ? mapTask(row) : null;
 }
 
-export function listTasks(limit = 100) {
-	return getDb()
-		.select()
-		.from(tasks)
-		.orderBy(desc(tasks.createdAt))
-		.limit(limit)
-		.all()
-		.map(mapTask);
+export function listTasks(options: { limit?: number; type?: TaskType | null } = {}) {
+	const limit = Math.min(Math.max(options.limit ?? 500, 1), 1000);
+	const rows = options.type
+		? getDb()
+				.select()
+				.from(tasks)
+				.where(eq(tasks.type, options.type))
+				.orderBy(desc(tasks.createdAt))
+				.limit(limit)
+				.all()
+		: getDb().select().from(tasks).orderBy(desc(tasks.createdAt)).limit(limit).all();
+	return rows.map(mapTask);
 }
 
 export function listActiveTasks(targetKeys?: string[]) {

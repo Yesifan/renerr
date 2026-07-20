@@ -13,6 +13,7 @@
 		Item,
 		RenamePlanDraft,
 		RenamePlanDraftRow,
+		RenamePlanSummary,
 		Task,
 		TmdbEpisodeOption,
 		TmdbSeasonOption,
@@ -45,11 +46,16 @@
 		plan: unknown;
 		task: Task;
 	};
+	type SubmitPlanResult = Task;
 
 	const draftQuery = createQuery<RenamePlanDraft>(() => ({
 		queryKey: queryKeys.planDraft(draftId),
 		queryFn: () => api<RenamePlanDraft>(`/api/rename-plan-drafts/${draftId}`),
 		enabled: Boolean(draftId)
+	}));
+	const confirmedPlanQuery = createQuery<RenamePlanSummary | null>(() => ({
+		queryKey: queryKeys.confirmedPlan(params.item_id),
+		queryFn: () => api<RenamePlanSummary | null>(`/api/library-items/${params.item_id}/plan`)
 	}));
 
 	const item = $derived(recognizedItem ?? data.item);
@@ -114,6 +120,15 @@
 		}
 	}));
 
+	const submitConfirmedPlanMutation = createMutation(() => ({
+		mutationFn: (plan: RenamePlanSummary) =>
+			post<SubmitPlanResult>(`/api/rename-plans/${plan.id}/submit`),
+		onSuccess: (task) => {
+			submittedTaskId = task.id;
+			return afterTaskMutation(m.toast_task_queued());
+		}
+	}));
+
 	async function afterTaskMutation(text: string) {
 		message = text;
 		showTaskLink = true;
@@ -122,6 +137,7 @@
 			queryClient.invalidateQueries({ queryKey: queryKeys.libraries }),
 			queryClient.invalidateQueries({ queryKey: queryKeys.libraryItems(params.id) }),
 			queryClient.invalidateQueries({ queryKey: queryKeys.tasks }),
+			queryClient.invalidateQueries({ queryKey: queryKeys.confirmedPlan(params.item_id) }),
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.activeTasks([`libraryItem:${params.item_id}`])
 			})
@@ -197,7 +213,8 @@
 			Boolean(activeItemTask) ||
 			createDraftMutation.isPending ||
 			updateDraftMutation.isPending ||
-			submitDraftMutation.isPending
+			submitDraftMutation.isPending ||
+			submitConfirmedPlanMutation.isPending
 		);
 	}
 
@@ -215,8 +232,7 @@
 
 	function canCreatePlan(target: Item) {
 		return (
-			target.status === 'identified' ||
-			(target.status === 'organized' && (target.nonCompliantFileCount ?? 0) > 0)
+			target.status === 'identified' || (target.status === 'organized' && target.videoFileCount > 0)
 		);
 	}
 
@@ -278,6 +294,28 @@
 	</header>
 
 	<ItemDetailPanel {item} {library} />
+
+	{#if confirmedPlanQuery.data}
+		<section class="rounded-md border border-primary/30 bg-primary/10 p-4 text-sm">
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<div class="font-medium text-foreground">{m.rename_plan_ready_title()}</div>
+					<div class="mt-1 text-xs text-muted-foreground">
+						{m.rename_plan_ready_description({ count: confirmedPlanQuery.data.itemCount })}
+					</div>
+				</div>
+				<Button
+					disabled={busy()}
+					onclick={() => {
+						if (confirmedPlanQuery.data)
+							submitConfirmedPlanMutation.mutate(confirmedPlanQuery.data);
+					}}
+				>
+					{m.action_execute_plan()}
+				</Button>
+			</div>
+		</section>
+	{/if}
 
 	{#if activeItemTask}
 		<section class="rounded-md border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-100">

@@ -18,6 +18,7 @@ export const libraryPaths = sqliteTable(
 			.notNull()
 			.references(() => webdavSources.id, { onDelete: 'cascade' }),
 		path: text('path').notNull(),
+		organizeTargetPath: text('organize_target_path'),
 		mediaType: text('media_type', { enum: ['movie', 'tv'] }).notNull(),
 		autoOrganize: integer('auto_organize', { mode: 'boolean' }).notNull().default(false),
 		createdAt: text('created_at').notNull(),

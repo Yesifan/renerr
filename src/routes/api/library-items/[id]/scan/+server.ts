@@ -6,7 +6,11 @@ import type { RequestEvent } from './$types';
 export function POST(event: RequestEvent) {
 	try {
 		const item = getItem(event.params.id);
-		if (item.status !== 'organized' && item.status !== 'unidentified') {
+		if (
+			item.status !== 'organized' &&
+			item.status !== 'identified' &&
+			item.status !== 'unidentified'
+		) {
 			return apiError(
 				new ApiError(
 					'item.scan_not_allowed',

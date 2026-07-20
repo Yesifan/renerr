@@ -41,6 +41,7 @@
 	let libraryForm = $state({
 		sourceId: '',
 		path: '/',
+		organizeTargetPath: null as string | null,
 		mediaType: 'tv' as 'movie' | 'tv',
 		autoOrganize: false
 	});
@@ -53,11 +54,11 @@
 
 	async function submitAction(
 		action: string,
-		payload: Record<string, string | boolean | undefined>
+		payload: Record<string, string | boolean | null | undefined>
 	) {
 		const formData = new FormData();
 		for (const [key, value] of Object.entries(payload)) {
-			if (typeof value !== 'undefined') formData.set(key, String(value));
+			if (typeof value !== 'undefined' && value !== null) formData.set(key, String(value));
 		}
 		const response = await fetch(`?/${action}`, {
 			method: 'POST',
@@ -137,6 +138,7 @@
 			libraryForm = {
 				sourceId: workspace.sources[0]?.id || '',
 				path: '/',
+				organizeTargetPath: null,
 				mediaType: 'tv',
 				autoOrganize: false
 			};
@@ -164,6 +166,22 @@
 		}
 	}
 
+	async function testLibraryTargetPath() {
+		if (!libraryForm.organizeTargetPath) return;
+		busy = true;
+		try {
+			await post('/api/webdav/path-test', {
+				sourceId: libraryForm.sourceId,
+				path: libraryForm.organizeTargetPath
+			});
+			message = m.library_path_target_test_succeeded();
+		} catch (error) {
+			message = String(error);
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function loadLibraryPathSuggestions(sourceId: string, parentPath: string) {
 		return queryClient.fetchQuery({
 			queryKey: queryKeys.webdavPathSuggestions(sourceId, parentPath),
@@ -181,6 +199,34 @@
 			await put<Library>(`/api/libraries/${library.id}`, { autoOrganize });
 			message = autoOrganize ? '已开启自动整理' : '已关闭自动整理';
 			await refresh();
+		} catch (error) {
+			message = String(error);
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function updateLibraryOrganizeTarget(library: Library, organizeTargetPath: string | null) {
+		busy = true;
+		try {
+			await put<Library>(`/api/libraries/${library.id}`, { organizeTargetPath });
+			message = m.library_path_target_saved();
+			await refresh();
+		} catch (error) {
+			message = String(error);
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function testExistingLibraryTargetPath(library: Library, organizeTargetPath: string) {
+		busy = true;
+		try {
+			await post('/api/webdav/path-test', {
+				sourceId: library.sourceId,
+				path: organizeTargetPath
+			});
+			message = m.library_path_target_test_succeeded();
 		} catch (error) {
 			message = String(error);
 		} finally {
@@ -257,6 +303,9 @@
 			{busy}
 			onAdd={() => (addLibraryOpen = true)}
 			onToggleAutoOrganize={toggleAutoOrganize}
+			onUpdateOrganizeTarget={updateLibraryOrganizeTarget}
+			onTestOrganizeTarget={testExistingLibraryTargetPath}
+			onLoadPathSuggestions={loadLibraryPathSuggestions}
 		/>
 	</SectionPanel>
 
@@ -277,6 +326,7 @@
 	testLabel={m.action_test_connection()}
 	onSave={saveLibrary}
 	onTest={testLibraryPath}
+	onTestTarget={testLibraryTargetPath}
 	onLoadPathSuggestions={loadLibraryPathSuggestions}
 />
 

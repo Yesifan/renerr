@@ -43,6 +43,16 @@ export function formatEpisodeMappingInput(season: number | null, episode: number
 	return season === null || episode === null ? '' : `${season}/${episode}`;
 }
 
+export function isEpisodeMappingInputInvalid(
+	input: string,
+	committedInput: string,
+	touched: boolean
+) {
+	return (
+		touched && input !== committedInput && parseEpisodeMappingInput(input).status === 'invalid'
+	);
+}
+
 export function formatEpisodeMappingPreview(mapping: EpisodeMapping | null) {
 	if (!mapping) return '';
 	return `S${pad2(mapping.season)}E${pad2(mapping.episode)}`;

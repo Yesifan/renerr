@@ -13,6 +13,7 @@ async function freshDb() {
 	vi.doUnmock('./sources');
 	vi.doUnmock('./tmdb');
 	vi.doUnmock('$lib/server/integrations/webdav-client');
+	vi.doUnmock('$lib/server/logger');
 	process.env.RENARR_DATA_DIR = mkdtempSync(join(tmpdir(), 'renarr-test-'));
 	process.env.RENARR_SECRET_KEY = secret;
 	const { getSqliteForTest, pushCurrentSchemaForTest } = await import('$lib/server/test-db');
@@ -224,6 +225,81 @@ describe('V1 core flows', () => {
 		db.close();
 	});
 
+	test('library organize target path is persisted, normalized, cleared, and relation-validated', async () => {
+		const db = await freshDb();
+		seedLibrary(db);
+		const { createLibrary, getLibrary, updateLibrary } = await import('./sources');
+
+		const library = createLibrary({
+			sourceId: 'source1',
+			path: 'incoming',
+			organizeTargetPath: 'organized',
+			mediaType: 'tv',
+			autoOrganize: false
+		});
+
+		expect(library).toMatchObject({
+			path: '/incoming',
+			organizeTargetPath: '/organized'
+		});
+		expect(getLibrary(library.id).organizeTargetPath).toBe('/organized');
+
+		const equalTarget = updateLibrary(library.id, { organizeTargetPath: '/incoming/' });
+		expect(equalTarget.organizeTargetPath).toBeNull();
+
+		const parentTarget = updateLibrary(library.id, { organizeTargetPath: '/' });
+		expect(parentTarget.organizeTargetPath).toBe('/');
+
+		await expect(() =>
+			updateLibrary(library.id, { organizeTargetPath: '/incoming/organized' })
+		).toThrow(expect.objectContaining({ code: 'library.target_path_descendant' }));
+
+		const cleared = updateLibrary(library.id, { organizeTargetPath: null });
+		expect(cleared.organizeTargetPath).toBeNull();
+		db.close();
+	});
+
+	test('WebDAV target path test is read-only and returns stable errors without leaking credentials', async () => {
+		const logEntries: unknown[] = [];
+		const listDirectory = vi.fn(async (path: string) => {
+			if (path === '/target') return [];
+			throw new Error('permission denied: secret-password');
+		});
+		await freshDb();
+		vi.doMock('$lib/server/logger', () => ({
+			createNodeLogger: () => ({
+				error: (...args: unknown[]) => logEntries.push(args),
+				info: vi.fn(),
+				warn: vi.fn()
+			})
+		}));
+		vi.doMock('$lib/server/integrations/webdav-client', () => ({
+			WebDavFileClient: class {
+				listDirectory = listDirectory;
+			}
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		const { testLibraryPath, upsertSource } = await import('./sources');
+		const source = upsertSource({
+			name: 'dav',
+			url: 'https://example.test/dav',
+			username: 'user',
+			credential: 'secret-password'
+		});
+
+		await expect(testLibraryPath({ sourceId: source.id, path: '/target' })).resolves.toEqual({
+			ok: true
+		});
+		expect(listDirectory).toHaveBeenCalledWith('/target');
+
+		const promise = testLibraryPath({ sourceId: source.id, path: '/private-target' });
+		await expect(promise).rejects.toMatchObject({ code: 'webdav.path_unreadable' });
+		await expect(promise).rejects.not.toThrow('secret-password');
+		expect(listDirectory).toHaveBeenCalledTimes(2);
+		expect(JSON.stringify(logEntries)).not.toContain('secret-password');
+		db.close();
+	});
+
 	test('scanLibraryPath skips pending review recognition while refreshing stats', async () => {
 		const rootList = vi.fn(async (path: string) =>
 			path === '/tv'
@@ -398,7 +474,7 @@ describe('V1 core flows', () => {
 		db.close();
 	});
 
-	test('scanLibraryPath enqueues create plan tasks for identified and dirty organized items', async () => {
+	test('scanLibraryPath enqueues create plan tasks for identified and organized items with videos', async () => {
 		await freshDb();
 		vi.doMock('./sources', () => ({
 			getLibrary: () => ({
@@ -455,6 +531,11 @@ describe('V1 core flows', () => {
 				)
 				.all()
 		).toEqual([
+			{
+				type: 'create_rename_plan_for_item',
+				target_key: 'libraryItem:clean1',
+				state: 'queued'
+			},
 			{
 				type: 'create_rename_plan_for_item',
 				target_key: 'libraryItem:dirty1',
@@ -600,6 +681,158 @@ describe('V1 core flows', () => {
 		expect(db.prepare('select type, state from tasks').all()).toEqual([
 			{ type: 'execute_rename_plan', state: 'queued' }
 		]);
+		db.close();
+	});
+
+	test('create rename plan task uses organize target root for filename-compliant organized items', async () => {
+		await freshDb();
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				organizeTargetPath: '/organized',
+				mediaType: 'tv',
+				autoOrganize: false,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				listDirectory: vi.fn(async (path: string) =>
+					path.endsWith('/Season 01')
+						? [{ basename: 'Show1.2024.s01e01.mkv', type: 'file' }]
+						: [{ basename: 'Season 01', type: 'directory' }]
+				),
+				exists: vi.fn(async () => false)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id,
+			  title, year, video_file_count, compliant_file_count, non_compliant_file_count,
+			  unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1 (2024)', 'organized', 'tmdb', 'tv', '100',
+			  'Show1', 2024, 1, 1, 0, 0, 'now', 'now')`
+		).run();
+		const { runCreateRenamePlanForItemTask } = await import('./planner');
+
+		const summary = await runCreateRenamePlanForItemTask('task1', 'item1');
+
+		expect(summary).toMatchObject({
+			itemId: 'item1',
+			executableRows: 1,
+			noopRows: 0,
+			autoExecute: false
+		});
+		expect(
+			db
+				.prepare(
+					`select source_file_path, target_file_path, target_top_level_path
+					 from rename_plan_items`
+				)
+				.get()
+		).toEqual({
+			source_file_path: '/tv/Show1 (2024)/Season 01/Show1.2024.s01e01.mkv',
+			target_file_path: '/organized/Show1 (2024)/Season 01/Show1.2024.s01e01.mkv',
+			target_top_level_path: 'Show1 (2024)'
+		});
+		db.close();
+	});
+
+	test('confirmed rename plan can be looked up from its library item', async () => {
+		await freshDb();
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id,
+			  title, year, video_file_count, compliant_file_count, non_compliant_file_count,
+			  unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1 (2024)', 'organized', 'tmdb', 'tv', '100',
+			  'Show1', 2024, 2, 2, 0, 0, 'now', 'now')`
+		).run();
+		db.prepare(
+			`insert into rename_plans
+			 (id, library_path_id, mode, status, template_snapshot_json, created_by, confirmed_at, created_at)
+			 values ('old-plan', 'lib1', 'auto', 'confirmed', '{}', 'worker', 'now', '2026-01-01T00:00:00.000Z'),
+			        ('latest-plan', 'lib1', 'auto', 'confirmed', '{}', 'worker', 'now', '2026-01-02T00:00:00.000Z')`
+		).run();
+		for (const [id, planId] of [
+			['row-old', 'old-plan'],
+			['row-new-1', 'latest-plan'],
+			['row-new-2', 'latest-plan']
+		]) {
+			db.prepare(
+				`insert into rename_plan_items
+				 (id, plan_id, library_item_id, source_file_path, target_file_path, target_top_level_path,
+				  media_kind, source_media_id, overwrite, sidecars_json, status)
+				 values (?, ?, 'item1', '/tv/source.mkv', '/target/file.mkv', 'Show1 (2024)',
+				  'tv', '100', 0, '[]', 'pending')`
+			).run(id, planId);
+		}
+		const { getConfirmedPlanForItem } = await import('./planner');
+
+		expect(getConfirmedPlanForItem('item1')).toEqual({
+			id: 'latest-plan',
+			libraryPathId: 'lib1',
+			mode: 'auto',
+			status: 'confirmed',
+			itemCount: 2,
+			createdAt: '2026-01-02T00:00:00.000Z'
+		});
+		db.close();
+	});
+
+	test('create rename plan task finishes without a confirmed plan when all rows are no-op', async () => {
+		await freshDb();
+		vi.doMock('./sources', () => ({
+			getLibrary: () => ({
+				id: 'lib1',
+				sourceId: 'source1',
+				sourceName: 'dav1',
+				path: '/tv',
+				organizeTargetPath: null,
+				mediaType: 'tv',
+				autoOrganize: true,
+				createdAt: '',
+				updatedAt: ''
+			}),
+			getClientForSource: () => ({
+				listDirectory: vi.fn(async (path: string) =>
+					path.endsWith('/Season 01')
+						? [{ basename: 'Show1.2024.s01e01.mkv', type: 'file' }]
+						: [{ basename: 'Season 01', type: 'directory' }]
+				),
+				exists: vi.fn(async () => false)
+			})
+		}));
+		const db = (await import('$lib/server/test-db')).getSqliteForTest();
+		seedLibrary(db);
+		db.prepare(
+			`insert into library_items
+			 (id, library_path_id, kind, top_level_path, status, source, source_media_type, source_media_id,
+			  title, year, video_file_count, compliant_file_count, non_compliant_file_count,
+			  unknown_file_count, created_at, updated_at)
+			 values ('item1', 'lib1', 'folder', 'Show1 (2024)', 'organized', 'tmdb', 'tv', '100',
+			  'Show1', 2024, 1, 1, 0, 0, 'now', 'now')`
+		).run();
+		const { runCreateRenamePlanForItemTask } = await import('./planner');
+
+		const summary = await runCreateRenamePlanForItemTask('task1', 'item1');
+
+		expect(summary).toMatchObject({
+			itemId: 'item1',
+			planId: null,
+			executableRows: 0,
+			noopRows: 1,
+			autoExecute: false,
+			executionTaskId: null
+		});
+		expect(db.prepare('select count(*) as count from rename_plans').get()).toEqual({ count: 0 });
+		expect(db.prepare('select count(*) as count from tasks').get()).toEqual({ count: 0 });
 		db.close();
 	});
 
