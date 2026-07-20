@@ -55,8 +55,10 @@
 		<header
 			class="sticky top-0 z-20 flex min-h-14 flex-wrap items-center gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:h-14 md:flex-nowrap md:gap-8 md:px-6 md:py-0"
 		>
-			<a class="text-xl font-semibold tracking-wide text-foreground" href={resolve('/')}
-				>{m.app_title()}</a
+			<a
+				class="flex items-center gap-2 text-xl font-semibold tracking-wide text-foreground"
+				href={resolve('/')}
+				><img src="/icon.svg" alt="" class="h-6 w-6 shrink-0" />{m.app_title()}</a
 			>
 			<label
 				class="flex min-w-0 flex-1 items-center gap-3 text-sm text-muted-foreground md:max-w-[340px]"

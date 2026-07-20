@@ -1,0 +1,13 @@
+services:
+  renarr:
+    build: .
+    ports:
+      - '3000:3000'
+    volumes:
+      - renarr-data:/app/.renarr-data
+    environment:
+      - RENARR_SECRET_KEY=${RENARR_SECRET_KEY:?RENARR_SECRET_KEY is required}
+    restart: unless-stopped
+
+volumes:
+  renarr-data:

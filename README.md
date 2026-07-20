@@ -1,6 +1,8 @@
-# Renarr
+# <img src="static/icon.svg" alt="" width="28" style="vertical-align: -6px"> Renarr
 
 Renarr 是深色管理台风格的 WebDAV 媒体库整理工具。V1 使用 SvelteKit 全栈单项目、TypeScript、Tailwind CSS、shadcn-svelte、SQLite、Drizzle ORM、Zod、Svelte Query 和 Paraglide JS。
+
+![Library detail](static/screenshots/library-detail.png)
 
 ## 项目状态
 
@@ -99,3 +101,42 @@ item 状态规则：
 - `scan_library_item`
 - `execute_rename_plan`
 - `cleanup_invalid_dirs`
+
+## Docker
+
+构建镜像：
+
+```sh
+docker compose build
+```
+
+首次运行前需要生成一个 32 字节的 base64 secret key：
+
+```sh
+openssl rand -base64 32
+```
+
+启动（同时运行 web server 和 worker）：
+
+```sh
+RENARR_SECRET_KEY=<your-key> docker compose up -d
+```
+
+或者将 key 写入 `.env` 文件：
+
+```
+RENARR_SECRET_KEY=<your-key>
+```
+
+然后直接 `docker compose up -d`。
+
+默认监听 `localhost:3000`，数据持久化在 Docker volume `renarr-data` 中。
+
+### GitHub Container Registry
+
+向 `main` 分支推送或打 `v*` tag 时，GitHub Actions 会自动构建并推送镜像到 `ghcr.io`。Tag 策略：
+
+| 事件      | Tags                  |
+| --------- | --------------------- |
+| push main | `main`, `sha-<short>` |
+| tag v*    | `<version>`, `latest` |
