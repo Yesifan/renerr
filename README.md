@@ -1,4 +1,4 @@
-# <img src="static/icon.svg" alt="" width="28" style="vertical-align: -6px"> Renarr
+# <img src="src/lib/assets/favicon.svg" alt="" width="28" style="vertical-align: -6px"> Renarr
 
 Renarr 是深色管理台风格的 WebDAV 媒体库整理工具。V1 使用 SvelteKit 全栈单项目、TypeScript、Tailwind CSS、shadcn-svelte、SQLite、Drizzle ORM、Zod、Svelte Query 和 Paraglide JS。
 

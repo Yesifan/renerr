@@ -7,6 +7,7 @@
 	import * as Select from '$lib/components/ui/select';
 	import * as Sidebar from '$lib/components/ui/sidebar';
 	import { getLocale, locales, messages as m, setBrowserLocale, type Locale } from '$lib/i18n';
+	import favicon from '$lib/assets/favicon.svg';
 	import type { Library } from '$lib/schemas/domain';
 	import { onMount } from 'svelte';
 
@@ -57,8 +58,7 @@
 		>
 			<a
 				class="flex items-center gap-2 text-xl font-semibold tracking-wide text-foreground"
-				href={resolve('/')}
-				><img src="/icon.svg" alt="" class="h-6 w-6 shrink-0" />{m.app_title()}</a
+				href={resolve('/')}><img src={favicon} alt="" class="h-6 w-6 shrink-0" />{m.app_title()}</a
 			>
 			<label
 				class="flex min-w-0 flex-1 items-center gap-3 text-sm text-muted-foreground md:max-w-[340px]"
