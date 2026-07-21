@@ -57,12 +57,12 @@
 
 ### Requirement: 日志保持英文诊断
 
-系统 SHALL 保持后端 log message 和 diagnostic context 为英文，日志页 SHALL 展示这些原始消息。
+系统 SHALL 保持后端 log message 和 diagnostic context 为英文，任务详情 SHALL 原样展示持久化的 task detail lines。
 
-#### Scenario: 用户查看日志
+#### Scenario: 用户查看任务运行记录
 
-- **WHEN** 用户打开系统日志页
-- **THEN** 日志行 MUST 展示后端英文 `message`、`component`、`level` 和 `contextJson`，并且不翻译 message body
+- **WHEN** 用户打开系统任务详情
+- **THEN** 运行记录 MUST 展示后端英文 task detail `message` 和 `level`，并且不翻译 message body
 
 ### Requirement: Library Path 目标目录 UI 文案使用 Paraglide messages
 

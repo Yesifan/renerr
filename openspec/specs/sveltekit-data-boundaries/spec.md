@@ -49,7 +49,8 @@
 #### Scenario: 用户打开 item detail URL
 
 - **WHEN** 用户直接访问 `libraries/[id]/[item_id]`
-- **THEN** 页面 MUST 使用 route 参数加载当前 library path 和 item 的初始上下文，并使用职责专一 JSON API 获取实时 item detail 和执行 item 级操作
+- **THEN** 页面 MUST 使用 route 参数加载当前 library path 和 item 摘要上下文，并使用职责专一 JSON API 获取 active task、TMDB 搜索、rename plan draft 和执行 item 级操作
+- **AND** 页面 MUST NOT 为默认详情页加载实时 WebDAV 文件列表
 
 ### Requirement: Svelte Query 限定于动态交互数据
 
@@ -77,7 +78,7 @@
 
 ### Requirement: 聚合 workspace API 被拆分
 
-系统 SHALL 拆分 `/api/workspace` 的职责，长期边界 MUST 使用 server load 或职责专一 API 返回窄 DTO。
+系统 SHALL 拆分 `/api/workspace` 的职责，长期边界 MUST 使用 server load 或职责专一 API 返回窄 DTO。当前不存在 `/api/workspace` 聚合 API。
 
 #### Scenario: AppShell 渲染导航
 

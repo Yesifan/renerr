@@ -114,7 +114,7 @@
 
 - **WHEN** rename task 或 plan item 执行失败
 - **THEN** 媒体库主页和 item 媒体信息区 MUST NOT 显示 item status 为失败
-- **AND** 用户 MUST 通过任务、日志或 execution records 查看失败详情
+- **AND** 用户 MUST 通过任务列表和任务详情中的 task detail lines 查看失败详情
 
 ### Requirement: 二值控件语义一致
 
@@ -179,15 +179,15 @@
 - **WHEN** item status 为 `identified`
 - **THEN** UI MUST 显示“手动指定”和“执行计划”按钮
 
-#### Scenario: Organized item 有待整理文件
+#### Scenario: Organized item 有视频文件
 
-- **WHEN** item status 为 `organized` 且 non-compliant file count 大于 0
+- **WHEN** item status 为 `organized` 且 video file count 大于 0
 - **THEN** UI MUST 显示“执行计划”按钮
 - **AND** UI MUST NOT 显示“手动指定”按钮
 
-#### Scenario: Organized item 无待整理文件
+#### Scenario: Organized item 无视频文件
 
-- **WHEN** item status 为 `organized` 且 non-compliant file count 为 0
+- **WHEN** item status 为 `organized` 且 video file count 等于 0
 - **THEN** UI MUST NOT 显示“执行计划”或“手动指定”按钮
 
 ### Requirement: Plan flow 使用 Dialog
@@ -297,26 +297,22 @@
 
 #### Scenario: 用户查看任务详情
 - **WHEN** 用户打开单个任务详情
-- **THEN** UI MUST 展示任务状态、目标对象、进度、完成摘要、任务日志和可用的结构化执行记录
+- **THEN** UI MUST 展示任务状态、目标对象、进度、完成摘要和 task detail lines
 
 #### Scenario: 详细日志已清理
-- **WHEN** 任务详情的详细日志或执行记录已被保留策略清理
+- **WHEN** 任务详情的 task detail lines 已被保留策略清理
 - **THEN** UI MUST 展示后端返回的任务摘要
-- **AND** UI MUST 显示详细日志或记录已清理的提示
+- **AND** UI MUST 显示详细日志已清理的提示
 
 ### Requirement: 任务详情内嵌日志
-系统 SHALL 在任务详情中内嵌该任务关联日志，并将全局日志页保留为跨任务事件流。
+系统 SHALL 在任务详情中内嵌该任务关联的 `task_detail_lines`。当前不提供独立全局日志页。
 
 #### Scenario: 任务详情展示日志
 - **WHEN** 用户查看任务详情日志
-- **THEN** UI MUST 直接展示后端日志 message 和 summary/context
+- **THEN** UI MUST 直接展示后端 task detail message 和 level；summary/context 通过任务完成摘要展示
 - **AND** UI MUST NOT 在前端将任务日志翻译为另一套中文文案
 
-#### Scenario: 全局日志跳转任务
-- **WHEN** 用户在全局日志页查看带 task id 的日志
-- **THEN** UI MUST 提供进入对应任务详情的入口
-
-#### Scenario: 全局日志保留系统事件
-- **WHEN** 日志不属于任何任务
-- **THEN** 全局日志页 MUST 继续展示该日志
-
+#### Scenario: 诊断日志不作为前端数据源
+- **WHEN** 系统写入不属于任务运行记录的 pino 诊断日志
+- **THEN** 日志写入进程 stdout
+- **AND** UI MUST NOT 将 stdout 或容器日志作为页面数据源

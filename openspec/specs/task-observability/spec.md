@@ -1,6 +1,6 @@
 ## Purpose
 
-定义后台任务状态、进度、事件日志、任务详情和日志存储控制规则，确保用户能从任务列表、任务详情和全局日志中理解任务运行结果。
+定义后台任务状态、进度、事件日志、任务详情和日志存储控制规则，确保用户能从任务列表和任务详情中理解任务运行结果。
 ## Requirements
 ### Requirement: 任务目标去重
 
@@ -60,15 +60,16 @@
 #### Scenario: 整理任务完成后扫描排队
 
 - **WHEN** an `execute_rename_plan` task finishes
-- **THEN** result summary MUST include automatic scan enqueue results for affected source and target directories
+- **THEN** result summary MUST include the automatic `scan_library_path` enqueue result
 - **AND** summary MUST distinguish MOVE row results from later scan synchronization state
+- **AND** an external `organizeTargetPath` is not treated as a second scan scope
 
 #### Scenario: 整理任务被 worker 重启中断
 
 - **WHEN** worker startup finds a running `execute_rename_plan` task
 - **THEN** 系统 MUST finish that task as failed
 - **AND** result summary MUST include counts for succeeded, failed, and pending plan items already stored in the database
-- **AND** error or summary MUST explain that the user should scan affected directories before creating another plan
+- **AND** error or summary MUST explain that the user should scan the configured library path before creating another plan
 
 ### Requirement: 任务详情
 
@@ -90,7 +91,7 @@
 
 - **WHEN** 用户打开整理任务详情
 - **THEN** 系统 MUST 返回该任务的状态、进度、完成摘要和 task detail lines
-- **AND** 系统 MUST NOT require execution records to display file-level results
+- **AND** 系统 MUST NOT require a separate execution-record table to display file-level results
 
 #### Scenario: 查看部分失败的整理任务详情
 
@@ -104,7 +105,7 @@
 - **WHEN** 用户打开 failed rename task detail
 - **AND** the task summary indicates worker interruption
 - **THEN** UI MUST clearly indicate that remote files may have changed before the interruption
-- **AND** UI MUST guide the user to scan affected directories instead of rerunning the same plan
+- **AND** UI MUST guide the user to scan the configured library path instead of rerunning the same plan
 
 #### Scenario: 查看长运行记录
 
@@ -292,4 +293,3 @@
 - **WHEN** code outside the task recorder needs task detail persistence
 - **THEN** it MUST use the task recorder API
 - **AND** it MUST NOT directly insert into `task_detail_lines`
-

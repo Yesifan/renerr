@@ -72,10 +72,12 @@
 - **WHEN** 用户进入 WebDAV 子目录
 - **THEN** 系统 MUST 只读取当前目录的直接子目录，并且 MUST NOT 递归加载整棵目录树
 
-#### Scenario: Item detail 浏览
+#### Scenario: Item detail 不读取实时文件列表
 
 - **WHEN** 用户打开 library item detail
-- **THEN** UI MUST 展示该 item 下的目录、视频文件、sidecar 文件和 metadata 文件
+- **THEN** UI MUST 展示 item 摘要、身份、完整远端路径和扫描统计
+- **AND** UI MUST NOT 展示实时目录、视频、sidecar 或 metadata 文件列表
+- **AND** 创建 rename plan draft 时才读取当前 WebDAV 视频文件
 
 ### Requirement: Library path 输入提供目录候选
 
@@ -219,4 +221,3 @@
 - **WHEN** 用户在添加或编辑 Library Path 时填写整理目标目录
 - **THEN** UI MUST 提供测试该整理目标目录的动作
 - **AND** 测试动作 MUST 使用当前输入的 source 和整理目标目录
-
