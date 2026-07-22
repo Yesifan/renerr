@@ -3,11 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { encryptCredential } from '$lib/server/security/credentials';
+import { closeTestDb } from '$lib/server/test-db';
 import { basename, dirname } from './paths';
 
 const secret = Buffer.from('12345678901234567890123456789012').toString('base64');
 
 async function freshDb() {
+	closeTestDb();
 	vi.resetModules();
 	vi.clearAllMocks();
 	vi.doUnmock('./sources');
