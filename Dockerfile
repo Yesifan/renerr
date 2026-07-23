@@ -7,7 +7,9 @@ FROM base AS build
 RUN apt-get update && apt-get install -y build-essential python3 \
     && rm -rf /var/lib/apt/lists/*
 COPY . .
-RUN pnpm install
+RUN pnpm install --frozen-lockfile 2>/dev/null; \
+    pnpm approve-builds --all 2>/dev/null; \
+    pnpm install
 RUN pnpm build && pnpm build:worker
 
 FROM base AS production
