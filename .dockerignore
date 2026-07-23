@@ -17,7 +17,8 @@ Thumbs.db
 .vscode
 openspec
 docs
-scripts
+scripts/*
+!scripts/docker-entrypoint.sh
 *.test.ts
 vitest.config.ts
 eslint.config.js
