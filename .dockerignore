@@ -24,7 +24,6 @@ vitest.config.ts
 eslint.config.js
 .prettierrc
 .prettierignore
-tsconfig.json
 AGENTS.md
 CONTEXT.md
 DESIGN.md
