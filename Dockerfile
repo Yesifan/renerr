@@ -1,6 +1,7 @@
 FROM node:24-slim AS base
 WORKDIR /app
-ENV PNPM_HOME=/pnpm PATH=$PNPM_HOME:$PATH NODE_ENV=production
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH NODE_ENV=production
 RUN corepack enable && corepack prepare pnpm@11.9.0 --activate
 
 FROM base AS build
